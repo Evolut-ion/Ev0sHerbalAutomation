@@ -1,0 +1,42 @@
+{
+  "TranslationProperties": {
+    "Name": "Placer"
+  },
+  "Set": "Rock_Calcite_Cobble",
+  "BlockType": {
+    "Gathering": {
+      "Breaking": {
+        "GatherType": "Rocks"
+      }
+    },
+    "ConnectedBlockRuleSet": null,
+    "ParticleColor": "#d4ece7",
+    "State": {
+      "Id": "BlockPlacer",
+      "Size": 5
+    },
+    "DrawType": "Model",
+    "CustomModelTexture": [
+      {
+        "Texture": "Items/Icons/ItemsGenerated/placer_texture.png"
+      }
+    ],
+    "CustomModel": "Items/Icons/ItemsGenerated/Placer.blockymodel",
+    "Material": "Solid",
+    "CustomModelAnimation": "Items/Icons/ItemsGenerated/place_anim.blockyanim",
+    "RequiresAlphaBlending": true,
+    "Looping": true,
+    "Interactions": {
+      "Use": "Open_Container"
+    }
+  },
+  "Tags": {
+    "Type": [
+      "Rock"
+    ]
+  },
+  "$Comment": "  ",
+  "Icon": "Icons/ItemsGenerated/Placer.png",
+  "Parent": "Rock_Stone_Cobble",
+  "Animation": "Items/Icons/ItemsGenerated/place_anim.blockyanim"
+}

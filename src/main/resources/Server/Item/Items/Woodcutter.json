@@ -1,0 +1,48 @@
+{
+  "TranslationProperties": {
+    "Name": "Woodcutter"
+  },
+  "Set": "Rock_Calcite_Cobble",
+  "BlockType": {
+    "Gathering": {
+      "Breaking": {
+        "GatherType": "Rocks"
+      }
+    },
+    "ConnectedBlockRuleSet": null,
+    "ParticleColor": "#d4ece7",
+    "State": {
+      "Id": "Woodcutter",
+      "Size": 5
+    },
+    "DrawType": "Model",
+    "CustomModelTexture": [
+      {
+        "Texture": "Items/Icons/ItemsGenerated/woodcutter_texture.png"
+      },
+      {
+        "Texture": "Items/Icons/ItemsGenerated/woodcutter_texture.png"
+      }
+    ],
+    "CustomModel": "Items/Icons/ItemsGenerated/WoodCutter.blockymodel",
+    "Material": "Solid",
+    "CustomModelAnimation": "Items/Icons/ItemsGenerated/animation.blockyanim",
+    "RequiresAlphaBlending": true,
+    "Looping": true,
+    "Interactions": {
+      "Use": "Open_Container"
+    },
+    "VariantRotation": "NESW"
+  },
+  "Tags": {
+    "Type": [
+      "Rock"
+    ]
+  },
+  "$Comment": "  ",
+  "Icon": "Icons/ItemsGenerated/WoodCutter.png",
+  "Utility": {
+    "Usable": true
+  },
+  "Parent": "Rock_Stone_Cobble"
+}

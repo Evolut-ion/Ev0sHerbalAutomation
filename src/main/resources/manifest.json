@@ -1,0 +1,14 @@
+{
+  "Group": "Ev0sMods",
+  "Name": "Ev0sHerbalAutomation",
+  "Version": "0.0.1",
+  "Description": "",
+  "Authors": [],
+  "Website": "",
+  "Dependencies": {},
+  "OptionalDependencies": {},
+  "LoadBefore": {},
+  "DisabledByDefault": false,
+  "IncludesAssetPack": true,
+  "SubPlugins": []
+}
