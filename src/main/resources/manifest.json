@@ -9,6 +9,8 @@
   "OptionalDependencies": {},
   "LoadBefore": {},
   "DisabledByDefault": false,
+  "Main": "com.Ev0sMods.Ev0sWoodCutter.Ev0sWoodCutterPlugin",
   "IncludesAssetPack": true,
+
   "SubPlugins": []
 }

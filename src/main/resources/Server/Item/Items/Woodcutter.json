@@ -44,5 +44,26 @@
   "Utility": {
     "Usable": true
   },
-  "Parent": "Rock_Stone_Cobble"
+  "Parent": "Rock_Stone_Cobble",
+  "Recipe": {
+    "Input": [
+      {
+        "ResourceTypeId": "Wood_Trunk",
+        "Quantity": 50
+      },
+      {
+        "ItemId": "Ingredient_Bar_Iron",
+        "Quantity": 25
+      }
+    ],
+    "BenchRequirement": [
+      {
+        "Id": "Workbench",
+        "Type": "Crafting",
+        "Categories": [
+          "Workbench_Crafting"
+        ]
+      }
+    ]
+  }
 }
