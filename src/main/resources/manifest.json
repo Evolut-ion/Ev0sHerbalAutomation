@@ -1,10 +1,14 @@
 {
   "Group": "Ev0sMods",
   "Name": "Ev0sHerbalAutomation",
-  "Version": "0.0.1",
+  "Version": "0.0.4",
   "Description": "",
   "Authors": [],
   "Website": "",
+  "UpdateChecker": {
+    "Curseforge": "1459420"
+  },
+  "ServerVersion": "2026.02.19-1a311a592",
   "Dependencies": {},
   "OptionalDependencies": {},
   "LoadBefore": {},

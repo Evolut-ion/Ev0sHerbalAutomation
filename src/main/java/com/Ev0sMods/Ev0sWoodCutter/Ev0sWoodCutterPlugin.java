@@ -1,6 +1,7 @@
 package com.Ev0sMods.Ev0sWoodCutter;
 
 import com.Ev0sMods.Ev0sWoodCutter.blockstates.BlockPlacer;
+import com.Ev0sMods.Ev0sWoodCutter.blockstates.FertilizerState;
 import com.Ev0sMods.Ev0sWoodCutter.blockstates.WoodCutter;
 import com.Ev0sMods.Ev0sWoodCutter.interactions.CutterFarmingStageInteraction;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.Interaction;
@@ -25,6 +26,7 @@ public class Ev0sWoodCutterPlugin extends JavaPlugin {
         final BlockStateRegistry bsr = this.getBlockStateRegistry();
         bsr.registerBlockState(WoodCutter.class, "Woodcutter", WoodCutter.CODEC, WoodCutter.Data.class, WoodCutter.Data.CODEC);
         bsr.registerBlockState(BlockPlacer.class, "BlockPlacer", BlockPlacer.CODEC, BlockPlacer.Data.class, BlockPlacer.Data.CODEC);
+        bsr.registerBlockState(FertilizerState.class, "FertilizerState", FertilizerState.CODEC, FertilizerState.Data.class, FertilizerState.Data.CODEC);
         this.getCodecRegistry(Interaction.CODEC).register("GrowthInteraction", CutterFarmingStageInteraction.class, CutterFarmingStageInteraction.CODEC);
         // TODO: Initialize your plugin here
         // - Load configuration

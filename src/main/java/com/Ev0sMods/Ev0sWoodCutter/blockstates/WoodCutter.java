@@ -3,7 +3,6 @@ package com.Ev0sMods.Ev0sWoodCutter.blockstates;
 
 
 
-
 import com.Ev0sMods.Ev0sWoodCutter.interactions.CutterFarmingStageInteraction;
 import com.Ev0sMods.Ev0sWoodCutter.interactions.HarvesterCropInteraction;
 import com.hypixel.hytale.builtin.adventure.farming.FarmingSystems;
@@ -20,6 +19,9 @@ import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.RotationTuple;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.StateData;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.farming.FarmingStageData;
+import com.hypixel.hytale.server.core.asset.type.blocktype.config.farming.FarmingData;
+import com.hypixel.hytale.builtin.adventure.farming.states.FarmingBlock;
+import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
 import com.hypixel.hytale.server.core.asset.type.item.config.Item;
 import com.hypixel.hytale.server.core.asset.type.item.config.ResourceType;
 import com.hypixel.hytale.server.core.asset.type.model.config.ModelAsset;
@@ -99,7 +101,6 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                 }
             }
             this.ref = ref;
-            CutterFarmingStageInteraction interaction = new CutterFarmingStageInteraction();
 
             int baseX = this.getBlockX();
             int baseY = this.getBlockY();
@@ -129,11 +130,6 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         x = baseX + dz;
                         z = baseZ + dx;
                     }
-                    interaction.interactWithBlock(
-                            w,
-                            InteractionType.Use,
-                            new ItemStack("Tool_Growth_Potion"),
-                            new Vector3i(x, y, z));
                    // chunk.markNeedsSaving();
 
                     BlockType block = w.getBlockType(x, y, z);
@@ -144,15 +140,56 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         saplingsToGrow.add(new Vector3i(x, y, z));
                         continue;
                     }
+                    if(block.getId().contains("Seed")) {
+                        
+                        continue;
+                    }
                     else {
                         WorldChunk chunk = w.getChunkIfInMemory(
                                 ChunkUtil.indexChunkFromBlock(x, z)
                         );
                         assert chunk != null;
                         if (block.getId().contains("Plant_Crop_")) {
-                            chunk.setBlock(x,y,z, "Empty", 3332);
-                            if(block.getGathering().getHarvest() != null) {
-                                this.itemContainer.addItemStacks(BlockHarvestUtils.getDrops(block, 3, null, block.getGathering().getHarvest().getDropListId()));
+                            // Check if plant is mature by examining its FarmingBlock component
+                            if (block.getFarming() != null) {
+                                // Get the FarmingBlock component to check current stage
+                                Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
+                                Ref<ChunkStore> chunkRef = w.getChunkStore().getChunkReference(ChunkUtil.indexChunkFromBlock(x, z));
+                                if (chunkRef != null) {
+                                    BlockComponentChunk blockComponentChunk = (BlockComponentChunk)chunkStore.getComponent(chunkRef, BlockComponentChunk.getComponentType());
+                                    if (blockComponentChunk != null) {
+                                        int blockIndexColumn = ChunkUtil.indexBlockInColumn(x, y, z);
+                                        Ref<ChunkStore> blockRef = blockComponentChunk.getEntityReference(blockIndexColumn);
+                                        if (blockRef != null) {
+                                            FarmingBlock farmingBlock = (FarmingBlock)chunkStore.getComponent(blockRef, FarmingBlock.getComponentType());
+                                            if (farmingBlock != null) {
+                                                // Get the current stage from the FarmingBlock
+                                                float currentProgress = farmingBlock.getGrowthProgress();
+                                                int currentStage = (int)currentProgress;
+                                                
+                                                // Get the stages to know the maximum
+                                                FarmingData farmingConfig = block.getFarming();
+                                                if (farmingConfig.getStages() != null) {
+                                                    String currentStageSet = farmingBlock.getCurrentStageSet();
+                                                    if (currentStageSet == null) {
+                                                        currentStageSet = farmingConfig.getStartingStageSet();
+                                                    }
+                                                    
+                                                    FarmingStageData[] stages = (FarmingStageData[])farmingConfig.getStages().get(currentStageSet);
+                                                    if (stages != null && stages.length > 0) {
+                                                        // Only harvest if the plant is at the final stage
+                                                        if (currentStage >= stages.length - 1) {
+                                                            chunk.setBlock(x,y,z, "Empty", 3332);
+                                                            if(block.getGathering().getHarvest() != null) {
+                                                                this.itemContainer.addItemStacks(BlockHarvestUtils.getDrops(block, 3, null, block.getGathering().getHarvest().getDropListId()));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -198,11 +235,7 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                     saplingsToGrow.add(new Vector3i(x, y, z));
 
 
-                    interaction.interactWithBlock(
-                            w,
-                            InteractionType.Use,
-                            new ItemStack("Tool_Growth_Potion"),
-                            new Vector3i(x, y, z));
+                    
                     chunk.markNeedsSaving();
                 }
             }
@@ -212,29 +245,8 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
         int baseX = this.getBlockX();
         int baseY = this.getBlockY();
         int baseZ = this.getBlockZ();
-        CutterFarmingStageInteraction interaction = new CutterFarmingStageInteraction();
-
-
-    /* ---------------------------------
-       PHASE 3: Apply growth to all saplings
-       --------------------------------- */
-            // Iterate over a copy to avoid mutation issues
-            //List<Vector3i> growthList = new ArrayList<>(saplingsToGrow);
-        World w = store.getExternalData().getWorld();
-            for (int dx = -2; dx <= 2; dx++) {
-                for (int dz = 0; dz <= 5; dz++) {
-                    int x = baseX + dx;
-                    int y = baseY;
-                    int z = baseZ + dz;
-
-
-                    interaction.interactWithBlock(
-                            w,
-                            InteractionType.Use,
-                            new ItemStack("Tool_Growth_Potion"),
-                            new Vector3i(x, y, z));
-                }
-            }
+        // Apply growth to all saplings
+        
 
 
     }

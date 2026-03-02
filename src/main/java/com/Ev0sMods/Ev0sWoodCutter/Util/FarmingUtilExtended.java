@@ -161,7 +161,7 @@ public class FarmingUtilExtended {
     }
 
     @Nullable
-    public static CapturedNPCMetadata generateCapturedNPCMetadata(@Nonnull ComponentAccessor<EntityStore> componentAccessor, @Nonnull Ref<EntityStore> entityRef, int roleIndex) {
+    public static CapturedNPCMetadata generateCapturedNPCMetadata(@Nonnull ComponentAccessor<EntityStore> componentAccessor, @Nonnull Ref<EntityStore> entityRef) {
         PersistentModel persistentModel = (PersistentModel)componentAccessor.getComponent(entityRef, PersistentModel.getComponentType());
         if (persistentModel == null) {
             return null;
@@ -172,7 +172,6 @@ public class FarmingUtilExtended {
                 meta.setIconPath(modelAsset.getIcon());
             }
 
-            meta.setRoleIndex(roleIndex);
             return meta;
         }
     }

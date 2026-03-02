@@ -60,9 +60,30 @@ public class BlockPlacer extends ItemContainerState implements TickableBlockStat
                 int y = baseY;
                 int z = baseZ + dz;
 
+                // Check if there's a fertilizer 3 blocks above this position
+                int fertilizerY = y + 3;
+                var fertilizerBlock = w.getBlockType(x, fertilizerY, z);
+                if (fertilizerBlock != null && fertilizerBlock.getId().contains("Fertilizer")) {
+                    HytaleLogger.getLogger().atInfo().log("BlockPlacer: Skipping seed placement at (" + x + ", " + y + ", " + z + ") - fertilizer found at (" + x + ", " + fertilizerY + ", " + z + ")");
+                    continue;
+                }
+                if (fertilizerBlock != null && fertilizerBlock.getId().contains("Test_Fert")) {
+                    HytaleLogger.getLogger().atInfo().log("BlockPlacer: Skipping seed placement at (" + x + ", " + y + ", " + z + ") - fertilizer found at (" + x + ", " + fertilizerY + ", " + z + ")");
+                    continue;
+                }
+
                 // Skip if there's already a sapling here
                 var existing = w.getBlockType(x, y, z);
                 if (existing != null && existing.getId().contains("Sapling")) {
+                    continue;
+
+                } if (existing != null && existing.getId().contains("Test")) {
+                    continue;
+
+                }if (existing != null && existing.getId().contains("Hopper")) {
+                    continue;
+
+                } if (existing != null && existing.getId().contains("Sucker")) {
                     continue;
 
                 }
