@@ -4,6 +4,8 @@ import com.Ev0sMods.Ev0sWoodCutter.blockstates.BlockPlacer;
 import com.Ev0sMods.Ev0sWoodCutter.blockstates.FertilizerState;
 import com.Ev0sMods.Ev0sWoodCutter.blockstates.WoodCutter;
 import com.Ev0sMods.Ev0sWoodCutter.interactions.CutterFarmingStageInteraction;
+import com.Ev0sMods.Ev0sWoodCutter.interactions.WoodcutterChangeStateInteraction;
+import com.Ev0sMods.Ev0sWoodCutter.interactions.WoodcutterInteraction;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.Interaction;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
@@ -28,11 +30,24 @@ public class Ev0sWoodCutterPlugin extends JavaPlugin {
         bsr.registerBlockState(BlockPlacer.class, "BlockPlacer", BlockPlacer.CODEC, BlockPlacer.Data.class, BlockPlacer.Data.CODEC);
         bsr.registerBlockState(FertilizerState.class, "FertilizerState", FertilizerState.CODEC, FertilizerState.Data.class, FertilizerState.Data.CODEC);
         this.getCodecRegistry(Interaction.CODEC).register("GrowthInteraction", CutterFarmingStageInteraction.class, CutterFarmingStageInteraction.CODEC);
-        // TODO: Initialize your plugin here
-        // - Load configuration
-        // - Register event listeners
-        // - Register commands
-        // - Start services
+        // Registered for future JSON use; actual state changes are driven by WoodCutter.tick().
+        this.getCodecRegistry(Interaction.CODEC).register("OpenWoodcutter", WoodcutterInteraction.class, WoodcutterInteraction.CODEC);
+        // Block-driven state change: called from tick when ArcIO signal changes, not by player.
+        this.getCodecRegistry(Interaction.CODEC).register("WoodcutterChangeState", WoodcutterChangeStateInteraction.class, WoodcutterChangeStateInteraction.CODEC);
+
+        // Register ArcIO mechanisms if ArcIO is installed
+        // Uses reflection to avoid loading ArcIO classes during plugin class resolution
+        try {
+            Class.forName("voidbond.arcio.ArcioPlugin");
+            Class.forName("com.Ev0sMods.Ev0sWoodCutter.blockstates.ArcioRegistration")
+                    .getMethod("register")
+                    .invoke(null);
+            System.out.println("[Ev0sWoodCutter] Registered ArcIO mechanisms: Woodcutter, Fertilizer, BlockPlacer");
+        } catch (ClassNotFoundException ignored) {
+            System.out.println("[Ev0sWoodCutter] ArcIO not found - skipping mechanism registration");
+        } catch (Exception e) {
+            System.out.println("[Ev0sWoodCutter] Failed to register ArcIO mechanisms: " + e.getMessage());
+        }
     }
 
     /**

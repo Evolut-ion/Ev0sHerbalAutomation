@@ -23,9 +23,7 @@
     ],
     "CustomModel": "Items/Icons/ItemsGenerated/Placer.blockymodel",
     "Material": "Solid",
-    "CustomModelAnimation": "Items/Icons/ItemsGenerated/place_anim.blockyanim",
     "RequiresAlphaBlending": true,
-    "Looping": true,
     "Interactions": {
       "Use": "Open_Container"
     }

@@ -1,26 +1,25 @@
 {
   "TranslationProperties": {
-    "Name": "Woodcutter"
+    "Name": "Fertilizer"
   },
-  "Set": "Rock_Calcite_Cobble",
+  "Set": "Rock_Aqua_Brick",
   "BlockType": {
     "Gathering": {
       "Breaking": {
         "GatherType": "Rocks"
       }
     },
-    "ConnectedBlockRuleSet": null,
-    "ParticleColor": "#d4ece7",
+    "ParticleColor": "#255a63",
     "State": {
-      "Id": "Woodcutter",
+      "Id": "FertilizerState",
       "Size": 5,
       "Definitions": {
         "Off": {
-          "CustomModelAnimation": null,
-          "Looping": false
+          "CustomModelAnimation": "Items/Icons/ItemsGenerated/idle_fert.blockyanim",
+          "Looping": true
         },
         "On": {
-          "CustomModelAnimation": "Items/Icons/ItemsGenerated/active.blockyanim",
+          "CustomModelAnimation": "Items/Icons/ItemsGenerated/active_fert.blockyanim",
           "Looping": true
         }
       }
@@ -28,13 +27,10 @@
     "DrawType": "Model",
     "CustomModelTexture": [
       {
-        "Texture": "Items/Icons/ItemsGenerated/woodcutter_texture.png"
-      },
-      {
-        "Texture": "Items/Icons/ItemsGenerated/woodcutter_texture.png"
+        "Texture": "Items/Icons/ItemsGenerated/fertilizer_block_texture.png"
       }
     ],
-    "CustomModel": "Items/Icons/ItemsGenerated/WoodCutter.blockymodel",
+    "CustomModel": "Items/Icons/ItemsGenerated/FertilizerBlock.blockymodel",
     "Material": "Solid",
     "RequiresAlphaBlending": true,
     "Interactions": {
@@ -47,12 +43,14 @@
       "Rock"
     ]
   },
-  "$Comment": "  ",
-  "Icon": "Icons/ItemsGenerated/WoodCutter.png",
+  "Icon": "Icons/ItemsGenerated/FertilizerBlock.png",
   "Utility": {
     "Usable": true
   },
   "Parent": "Rock_Stone_Cobble",
+  "Container": {
+    "Capacity": 2
+  },
   "Recipe": {
     "Input": [
       {
@@ -61,6 +59,10 @@
       },
       {
         "ItemId": "Ingredient_Bar_Iron",
+        "Quantity": 25
+      },
+      {
+        "ItemId": "Ingredient_Crystal_Purple",
         "Quantity": 25
       }
     ],
@@ -75,3 +77,4 @@
     ]
   }
 }
+

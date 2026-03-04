@@ -5,6 +5,7 @@ package com.Ev0sMods.Ev0sWoodCutter.blockstates;
 
 import com.Ev0sMods.Ev0sWoodCutter.interactions.CutterFarmingStageInteraction;
 import com.Ev0sMods.Ev0sWoodCutter.interactions.HarvesterCropInteraction;
+import com.Ev0sMods.Ev0sWoodCutter.interactions.WoodcutterChangeStateInteraction;
 import com.hypixel.hytale.builtin.adventure.farming.FarmingSystems;
 import com.hypixel.hytale.builtin.adventure.farming.interactions.HarvestCropInteraction;
 import com.hypixel.hytale.component.*;
@@ -25,8 +26,8 @@ import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
 import com.hypixel.hytale.server.core.asset.type.item.config.Item;
 import com.hypixel.hytale.server.core.asset.type.item.config.ResourceType;
 import com.hypixel.hytale.server.core.asset.type.model.config.ModelAsset;
-import com.hypixel.hytale.server.core.entity.AnimationUtils;
 import com.hypixel.hytale.server.core.entity.InteractionContext;
+import com.hypixel.hytale.server.core.universe.world.SetBlockSettings;
 import com.hypixel.hytale.server.core.entity.entities.BlockEntity;
 import com.hypixel.hytale.server.core.inventory.ItemStack;
 import com.hypixel.hytale.server.core.inventory.container.SimpleItemContainer;
@@ -47,6 +48,9 @@ import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.KeyedCodec;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
 import it.unimi.dsi.fastutil.objects.ObjectList;
+import voidbond.arcio.ArcioPlugin;
+import voidbond.arcio.components.ArcioMechanismComponent;
+import voidbond.arcio.components.BlockUUIDComponent;
 
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
@@ -62,8 +66,20 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
             .append(new KeyedCodec<>("Size", Codec.INTEGER, true), (i, v) -> i.square = v, i -> i.square).add().build();
     public Data data;
     public int timer = 0;
-    public Ref<EntityStore> ref;
 
+    /** Whether we have already ensured our ArcIO components exist on this block entity. */
+    private boolean arcioInitialized = false;
+    /** Whether the looping animation is currently playing. */
+    private boolean isAnimating = false;
+
+    /** True when ArcIO is on the server at runtime. */
+    private static final boolean ARCIO_PRESENT;
+    static {
+        boolean found = false;
+        try { Class.forName("voidbond.arcio.components.ArcioMechanismComponent"); found = true; }
+        catch (ClassNotFoundException ignored) {}
+        ARCIO_PRESENT = found;
+    }
 
     @Override
     public void tick(
@@ -76,20 +92,47 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
         if(timer >= 150) {
             timer = 0;
             World w = store.getExternalData().getWorld();
+            if (w == null) return;
 
+            // EntityStore needed for item collection.
+            Store<EntityStore> entityStore = w.getEntityStore().getStore();
+            this.entities = entityStore;
 
+            // If ArcIO is installed, register as a mechanism and gate on signal.
+            if (ARCIO_PRESENT) {
+                ensureArcioComponents(w);
+                boolean active = isArcioActive(w);
+                HytaleLogger.getLogger().atInfo().log(
+                    "[WoodCutter %d,%d,%d] ArcIO active=%b",
+                    getBlockX(), getBlockY(), getBlockZ(), active);
+                if (!active) {
+                    // Signal off — ensure we are in Off state and stop.
+                    if (isAnimating) {
+                        applyBlockState(w, WoodcutterChangeStateInteraction.STATE_OFF);
+                        isAnimating = false;
+                    }
+                    return;
+                }
+            }
+
+            HytaleLogger.getLogger().atInfo().log(
+                "[WoodCutter %d,%d,%d] Tick - scanning area (rot=%d)",
+                getBlockX(), getBlockY(), getBlockZ(), getRotationIndex());
+
+            // Tracks whether any harvesting occurs this tick — drives On/Off state for non-ArcIO.
+            boolean didWork = false;
 
     /* ---------------------------------
        PHASE 0: Collect nearby dropped items
        --------------------------------- */
-            for (Ref<EntityStore> ref : getAllItemsInBox(
+            for (Ref<EntityStore> itemRef : getAllItemsInBox(
                     this,
                     this.getBlockPosition(),
-                    w.getEntityStore().getStore(),
+                    entityStore,
                     true, true, true
             )) {
                 ItemComponent ic =
-                        ref.getStore().getComponent(ref, ItemComponent.getComponentType());
+                        itemRef.getStore().getComponent(itemRef, ItemComponent.getComponentType());
                 if (ic == null) continue;
 
                 ItemStack stack = ic.getItemStack();
@@ -97,10 +140,9 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
 
                 if (this.getItemContainer().canAddItemStack(stack)) {
                     this.getItemContainer().addItemStack(stack);
-                    entities.removeEntity(ref, RemoveReason.UNLOAD);
+                    entities.removeEntity(itemRef, RemoveReason.UNLOAD);
                 }
             }
-            this.ref = ref;
 
             int baseX = this.getBlockX();
             int baseY = this.getBlockY();
@@ -109,7 +151,6 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
             // List to track all sapling positions for growth
             List<Vector3i> saplingsToGrow = new ArrayList<>();
 
-            HytaleLogger.getLogger().atInfo().log(String.valueOf(getRotationIndex()));
             for (int dx = -2; dx <= 2; dx++) {
                 for (int dz = 0; dz <= 5; dz++) {
 
@@ -140,76 +181,114 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         saplingsToGrow.add(new Vector3i(x, y, z));
                         continue;
                     }
-                    if(block.getId().contains("Seed")) {
-                        
+                    if (block.getId().contains("Seed")) {
                         continue;
                     }
-                    else {
-                        WorldChunk chunk = w.getChunkIfInMemory(
-                                ChunkUtil.indexChunkFromBlock(x, z)
-                        );
-                        assert chunk != null;
-                        if (block.getId().contains("Plant_Crop_")) {
-                            // Check if plant is mature by examining its FarmingBlock component
-                            if (block.getFarming() != null) {
-                                // Get the FarmingBlock component to check current stage
-                                Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
-                                Ref<ChunkStore> chunkRef = w.getChunkStore().getChunkReference(ChunkUtil.indexChunkFromBlock(x, z));
-                                if (chunkRef != null) {
-                                    BlockComponentChunk blockComponentChunk = (BlockComponentChunk)chunkStore.getComponent(chunkRef, BlockComponentChunk.getComponentType());
-                                    if (blockComponentChunk != null) {
-                                        int blockIndexColumn = ChunkUtil.indexBlockInColumn(x, y, z);
-                                        Ref<ChunkStore> blockRef = blockComponentChunk.getEntityReference(blockIndexColumn);
-                                        if (blockRef != null) {
-                                            FarmingBlock farmingBlock = (FarmingBlock)chunkStore.getComponent(blockRef, FarmingBlock.getComponentType());
-                                            if (farmingBlock != null) {
-                                                // Get the current stage from the FarmingBlock
-                                                float currentProgress = farmingBlock.getGrowthProgress();
-                                                int currentStage = (int)currentProgress;
-                                                
-                                                // Get the stages to know the maximum
-                                                FarmingData farmingConfig = block.getFarming();
-                                                if (farmingConfig.getStages() != null) {
-                                                    String currentStageSet = farmingBlock.getCurrentStageSet();
-                                                    if (currentStageSet == null) {
-                                                        currentStageSet = farmingConfig.getStartingStageSet();
-                                                    }
-                                                    
-                                                    FarmingStageData[] stages = (FarmingStageData[])farmingConfig.getStages().get(currentStageSet);
-                                                    if (stages != null && stages.length > 0) {
-                                                        // Only harvest if the plant is at the final stage
-                                                        if (currentStage >= stages.length - 1) {
-                                                            chunk.setBlock(x,y,z, "Empty", 3332);
-                                                            if(block.getGathering().getHarvest() != null) {
-                                                                this.itemContainer.addItemStacks(BlockHarvestUtils.getDrops(block, 3, null, block.getGathering().getHarvest().getDropListId()));
-                                                            }
-                                                        }
-                                                    }
+
+                    // --- Crop handling: only harvest fully grown, skip immature ---
+                    if (block.getId().contains("Plant_Crop_")) {
+                        boolean isFullyGrown = false;
+                        FarmingData farmingConfig = block.getFarming();
+
+                        if (farmingConfig != null && farmingConfig.getStages() != null) {
+                            Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
+                            Ref<ChunkStore> chunkRef = w.getChunkStore().getChunkReference(
+                                    ChunkUtil.indexChunkFromBlock(x, z));
+                            if (chunkRef != null) {
+                                BlockComponentChunk blockComponentChunk =
+                                        (BlockComponentChunk) chunkStore.getComponent(
+                                                chunkRef, BlockComponentChunk.getComponentType());
+                                if (blockComponentChunk != null) {
+                                    int blockIndexColumn = ChunkUtil.indexBlockInColumn(x, y, z);
+                                    Ref<ChunkStore> blockRef =
+                                            blockComponentChunk.getEntityReference(blockIndexColumn);
+
+                                    if (blockRef != null) {
+                                        FarmingBlock farmingBlock =
+                                                (FarmingBlock) chunkStore.getComponent(
+                                                        blockRef, FarmingBlock.getComponentType());
+                                        if (farmingBlock != null) {
+                                            // Plant still has a FarmingBlock → check its stage
+                                            float currentProgress = farmingBlock.getGrowthProgress();
+                                            int currentStage = (int) currentProgress;
+
+                                            String currentStageSet = farmingBlock.getCurrentStageSet();
+                                            if (currentStageSet == null) {
+                                                currentStageSet = farmingConfig.getStartingStageSet();
+                                            }
+
+                                            FarmingStageData[] stages =
+                                                    (FarmingStageData[]) farmingConfig.getStages()
+                                                            .get(currentStageSet);
+                                            if (stages != null && stages.length > 0) {
+                                                if (currentStage >= stages.length - 1) {
+                                                    isFullyGrown = true;
+                                                } else {
+                                                    // Not mature – leave it alone
+                                                    HytaleLogger.getLogger().atFine().log(
+                                                            "[WoodCutter %d,%d,%d] Crop %s at (%d,%d,%d) still growing: stage %d/%d",
+                                                            getBlockX(), getBlockY(), getBlockZ(),
+                                                            block.getId(), x, y, z,
+                                                            currentStage, stages.length - 1);
                                                 }
                                             }
+                                        } else {
+                                            // FarmingBlock component was removed → growth completed
+                                            isFullyGrown = true;
                                         }
+                                    } else {
+                                        // No block entity ref → FarmingBlock removed after growth finished
+                                        isFullyGrown = true;
                                     }
                                 }
                             }
+                        } else {
+                            // No farming stages defined → treat as harvestable
+                            isFullyGrown = true;
                         }
+
+                        if (isFullyGrown) {
+                            WorldChunk cropChunk = w.getChunkIfInMemory(
+                                    ChunkUtil.indexChunkFromBlock(x, z));
+                            if (cropChunk != null) {
+                                HytaleLogger.getLogger().atInfo().log(
+                                        "[WoodCutter %d,%d,%d] Harvesting fully grown crop %s at (%d,%d,%d)",
+                                        getBlockX(), getBlockY(), getBlockZ(),
+                                        block.getId(), x, y, z);
+                                cropChunk.setBlock(x, y, z, "Empty", 3332);
+                                didWork = true;
+                                if (block.getGathering() != null
+                                        && block.getGathering().getHarvest() != null) {
+                                    this.itemContainer.addItemStacks(
+                                            BlockHarvestUtils.getDrops(block, 3, null,
+                                                    block.getGathering().getHarvest().getDropListId()));
+                                }
+                            }
+                        }
+                        continue; // Crop handled – skip hardwood checks, move to next block
                     }
 
                     Item item = block.getItem();
                     if (item == null || item.getResourceTypes() == null) continue;
 
-                    boolean isHardwood = false;
+                    boolean isWood = false;
                     for (var rt : item.getResourceTypes()) {
-                        if ("Wood_Hardwood".equals(rt.id)) {
-                            isHardwood = true;
+                        if (rt.id != null && rt.id.startsWith("Wood_")) {
+                            isWood = true;
                             break;
                         }
                     }
-                    if (!isHardwood) continue;
+                    if (!isWood) continue;
 
                     WorldChunk chunk = w.getChunkIfInMemory(
                             ChunkUtil.indexChunkFromBlock(x, z)
                     );
                     if (chunk == null) continue;
+
+                    HytaleLogger.getLogger().atInfo().log(
+                        "[WoodCutter %d,%d,%d] Cutting tree %s at (%d,%d,%d)",
+                        getBlockX(), getBlockY(), getBlockZ(),
+                        block.getId(), x, y, z);
 
                     // Normalize the species name
                     String sapling = item.getBlockId()
@@ -222,6 +301,7 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                     chunk.breakBlock(x, y + 1, z, 3332);
                     chunk.breakBlock(x, y - 1, z, 3332);
                     chunk.breakBlock(x, y - 2, z, 3332);
+                    didWork = true;
 
                     // Prepare soil
                     chunk.setBlock(x, y - 1, z, "Soil_Grass");
@@ -239,16 +319,17 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                     chunk.markNeedsSaving();
                 }
             }
+
+            // Always drive On/Off based on whether we actually harvested something.
+            if (didWork != isAnimating) {
+                applyBlockState(w, didWork
+                        ? WoodcutterChangeStateInteraction.STATE_ON
+                        : WoodcutterChangeStateInteraction.STATE_OFF);
+                isAnimating = didWork;
+            }
         } else{
             timer++;
         }
-        int baseX = this.getBlockX();
-        int baseY = this.getBlockY();
-        int baseZ = this.getBlockZ();
-        // Apply growth to all saplings
-        
-
-
     }
 
 
@@ -256,21 +337,202 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
 
     @Override
     public boolean initialize(BlockType blockType) {
-        if (super.initialize(blockType) && blockType.getState() instanceof Data data) {
-            this.data = data;
-            //SpatialResource<Ref<EntityStore>, EntityStore> playerSpatialResource = (SpatialResource) .getResource(EntityModule.get().getPlayerSpatialResourceType());
-            //if()
-            setItemContainer(new SimpleItemContainer((short)15));
-            return true;
+        if (!super.initialize(blockType)) return false;
+        // blockType.getState() may be null when block types load before our codec registers — don't gate on instanceof.
+        if (blockType.getState() instanceof Data d) this.data = d;
+        setItemContainer(new SimpleItemContainer((short) 15));
+        if(ARCIO_PRESENT) {
+            HytaleLogger.getLogger().atInfo().log(
+                "[WoodCutter %d,%d,%d] ArcIO detected - woodcutter will respond to adjacent ArcIO signals",
+                getBlockX(), getBlockY(), getBlockZ());
+                
+        } else {
+            HytaleLogger.getLogger().atInfo().log(
+                "[WoodCutter %d,%d,%d] ArcIO not detected - woodcutter will run continuously without external control",
+                getBlockX(), getBlockY(), getBlockZ());
         }
-
-        return false;
-
+        return true;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+    }
+
+    /**
+     * Changes the WoodCutter's State.Definition on the server so the client sees
+     * the correct animation.  Uses NO_UPDATE_STATE so the existing BlockState
+     * component (including the item inventory) is NOT reinitialized.
+     * This is exactly how ChangeStateInteraction changes named states.
+     */
+    private void applyBlockState(World world, String stateName) {
+        try {
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            WorldChunk chunk = world.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(bx, bz));
+            if (chunk == null) {
+                HytaleLogger.getLogger().atWarning().log(
+                    "[WoodCutter %d,%d,%d] applyBlockState: chunk null", bx, by, bz);
+                return;
+            }
+            BlockType current = chunk.getBlockType(new Vector3i(bx, by, bz));
+            if (current == null) {
+                HytaleLogger.getLogger().atWarning().log(
+                    "[WoodCutter %d,%d,%d] applyBlockState: BlockType null", bx, by, bz);
+                return;
+            }
+            // Mirror ChangeStateInteraction: getBlockKeyForState -> asset map index -> setBlock
+            String stateKey = current.getBlockKeyForState(stateName);
+            if (stateKey == null) {
+                HytaleLogger.getLogger().atWarning().log(
+                    "[WoodCutter %d,%d,%d] applyBlockState: no key for state '%s' (current=%s)",
+                    bx, by, bz, stateName, current.getId());
+                return;
+            }
+            var assetMap = BlockType.getAssetMap();
+            int blockTypeIndex = assetMap.getIndex(stateKey);
+            if (blockTypeIndex == Integer.MIN_VALUE) {
+                HytaleLogger.getLogger().atWarning().log(
+                    "[WoodCutter %d,%d,%d] applyBlockState: asset index not found for key '%s'",
+                    bx, by, bz, stateKey);
+                return;
+            }
+            BlockType target = (BlockType) assetMap.getAsset(blockTypeIndex);
+            int rot = chunk.getRotationIndex(bx, by, bz);
+            HytaleLogger.getLogger().atInfo().log(
+                "[WoodCutter %d,%d,%d] setBlock to state '%s' key='%s' idx=%d rot=%d",
+                bx, by, bz, stateName, stateKey, blockTypeIndex, rot);
+            // Same flags as ArcIO ChangeStateInteraction with UpdateBlockState=false:
+            // arg7=0 (NONE), arg8=262 (NO_UPDATE_STATE | NO_SEND_PARTICLES | 256)
+            chunk.setBlock(bx, by, bz, blockTypeIndex, target, rot,
+                SetBlockSettings.NONE,
+                SetBlockSettings.NO_UPDATE_STATE | SetBlockSettings.NO_SEND_PARTICLES | 256);
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[WoodCutter %d,%d,%d] applyBlockState failed: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+    }
+
+    /**
+     * Ensures this block entity has the ArcIO mechanism and UUID components
+     * so it can be wired into ArcIO networks via manathreads.
+     */
+    private void ensureArcioComponents(World world) {
+        if (arcioInitialized) return;
+        try {
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            Store<ChunkStore> cs = world.getChunkStore().getStore();
+            Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                    ChunkUtil.indexChunkFromBlock(bx, bz));
+            if (chunkRef == null) return;
+            BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                    chunkRef, BlockComponentChunk.getComponentType());
+            if (bcc == null) return;
+            Ref<ChunkStore> blockRef = bcc.getEntityReference(ChunkUtil.indexBlockInColumn(bx, by, bz));
+            if (blockRef == null) return;
+
+            // Add BlockUUIDComponent if missing
+            BlockUUIDComponent uuid = (BlockUUIDComponent) cs.getComponent(
+                    blockRef, BlockUUIDComponent.getComponentType());
+            if (uuid == null) {
+                uuid = BlockUUIDComponent.randomUUID();
+                uuid.setPosition(new Vector3i(bx, by, bz));
+                cs.putComponent(blockRef, BlockUUIDComponent.getComponentType(), uuid);
+                ArcioPlugin.get().putUUID(uuid.getUuid(), blockRef);
+                HytaleLogger.getLogger().atInfo().log(
+                    "[WoodCutter %d,%d,%d] Registered ArcIO UUID: %s",
+                    bx, by, bz, uuid.getUuid());
+            }
+
+            // Add ArcioMechanismComponent if missing
+            ArcioMechanismComponent mech = (ArcioMechanismComponent) cs.getComponent(
+                    blockRef, ArcioMechanismComponent.getComponentType());
+            if (mech == null) {
+                mech = new ArcioMechanismComponent("Woodcutter", 0, 1);
+                cs.putComponent(blockRef, ArcioMechanismComponent.getComponentType(), mech);
+                HytaleLogger.getLogger().atInfo().log(
+                    "[WoodCutter %d,%d,%d] Added ArcIO mechanism component (type=Woodcutter)",
+                    bx, by, bz);
+            }
+
+            arcioInitialized = true;
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[WoodCutter %d,%d,%d] Failed to ensure ArcIO components: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+    }
+
+    /**
+     * Checks if this block's ArcIO mechanism is active.
+     * First checks the block's own mechanism component (for manathread connections),
+     * then falls back to checking adjacent mechanisms for backwards compatibility.
+     */
+    private boolean isArcioActive(World world) {
+        try {
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            Store<ChunkStore> cs = world.getChunkStore().getStore();
+            Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                    ChunkUtil.indexChunkFromBlock(bx, bz));
+            if (chunkRef != null) {
+                BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                        chunkRef, BlockComponentChunk.getComponentType());
+                if (bcc != null) {
+                    Ref<ChunkStore> blockRef = bcc.getEntityReference(
+                            ChunkUtil.indexBlockInColumn(bx, by, bz));
+                    if (blockRef != null) {
+                        ArcioMechanismComponent mech = (ArcioMechanismComponent) cs.getComponent(
+                                blockRef, ArcioMechanismComponent.getComponentType());
+                        if (mech != null) {
+                            int signal = mech.getStrongestInputSignal(world);
+                            int required = mech.getRequiredSignal();
+                            if (signal >= required) return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[WoodCutter %d,%d,%d] ArcIO own-signal check failed: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+        // Fallback: check adjacent ArcIO mechanisms
+        return hasAdjacentActiveArcioMechanism(world);
+    }
+
+    /**
+     * Returns true if any of the 6 directly adjacent blocks has an ArcIO
+     * MechanismComponent whose signal meets or exceeds its required threshold (i.e. is "On").
+     */
+    private boolean hasAdjacentActiveArcioMechanism(World world) {
+        try {
+            Store<ChunkStore> cs = world.getChunkStore().getStore();
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            int[][] offsets = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
+            for (int[] off : offsets) {
+                int nx = bx + off[0], ny = by + off[1], nz = bz + off[2];
+                Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                        ChunkUtil.indexChunkFromBlock(nx, nz));
+                if (chunkRef == null) continue;
+                BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                        chunkRef, BlockComponentChunk.getComponentType());
+                if (bcc == null) continue;
+                Ref<ChunkStore> blockRef = bcc.getEntityReference(ChunkUtil.indexBlockInColumn(nx, ny, nz));
+                if (blockRef == null) continue;
+                ArcioMechanismComponent mc = (ArcioMechanismComponent) cs.getComponent(
+                        blockRef, ArcioMechanismComponent.getComponentType());
+                if (mc != null) {
+                    int signal = mc.getStrongestInputSignal(world);
+                    int required = mc.getRequiredSignal();
+                    if (signal >= required) return true;
+                }
+            }
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[WoodCutter %d,%d,%d] ArcIO adjacent check failed: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+        return false;
     }
 
     public List<Ref<EntityStore>> getAllItemsInBox(WoodCutter hp, Vector3i pos, @Nonnull ComponentAccessor<EntityStore> components, boolean players, boolean entities, boolean items) {
@@ -295,6 +557,20 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
         ComponentRegistryProxy<EntityStore> entityStoreRegistry = EntityModule.get().getEntityStoreRegistry();
         return EntityModule.get().getBlockEntityComponentType();
     }
+    /**
+     * Gets a reference to this block's entity for use with entity store operations.
+     */
+    private Ref<ChunkStore> getBlockEntityReference(World world) {
+        Store<ChunkStore> cs = world.getChunkStore().getStore();
+        Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                ChunkUtil.indexChunkFromBlock(getBlockX(), getBlockZ()));
+        if (chunkRef == null) return null;
+        BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                chunkRef, BlockComponentChunk.getComponentType());
+        if (bcc == null) return null;
+        return bcc.getEntityReference(ChunkUtil.indexBlockInColumn(getBlockX(), getBlockY(), getBlockZ()));
+    }
+
     public static class Data extends StateData {
         @Nonnull
         public static final BuilderCodec<Data> CODEC = BuilderCodec.builder(Data.class, Data::new, StateData.DEFAULT_CODEC)

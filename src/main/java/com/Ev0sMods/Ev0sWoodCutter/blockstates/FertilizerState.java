@@ -31,6 +31,8 @@ import com.hypixel.hytale.server.core.modules.entity.component.ModelComponent;
 import com.hypixel.hytale.server.core.modules.entity.item.ItemComponent;
 import com.hypixel.hytale.server.core.modules.interaction.BlockHarvestUtils;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.RootInteraction;
+import com.hypixel.hytale.server.core.universe.world.ParticleUtil;
+import com.hypixel.hytale.server.core.universe.world.SetBlockSettings;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
 import com.hypixel.hytale.server.core.universe.world.chunk.WorldChunk;
@@ -43,8 +45,13 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.KeyedCodec;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
+import com.hypixel.hytale.math.util.ChunkUtil;
 import com.hypixel.hytale.server.core.inventory.container.filter.FilterActionType;
+import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
 import it.unimi.dsi.fastutil.objects.ObjectList;
+import voidbond.arcio.ArcioPlugin;
+import voidbond.arcio.components.ArcioMechanismComponent;
+import voidbond.arcio.components.BlockUUIDComponent;
 
 import javax.annotation.Nonnull;
 
@@ -62,6 +69,26 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
     public Data data;
     public int timer = 0;
     public int processingTimer = 0;
+
+    /** Tracks the last known ArcIO signal state so we only log on changes. */
+    private boolean lastArcioActive = false;
+    /** Whether we have already ensured our ArcIO components exist on this block entity. */
+    private boolean arcioInitialized = false;
+    /** Whether the On animation is currently active. */
+    private boolean isAnimating = false;
+    /** Countdown ticks holding the On state so the animation can play to completion. */
+    private int animHoldTimer = 0;
+    /** How many ticks to hold On before allowing a transition back to Off (~2 s at 30 TPS). */
+    private static final int ANIM_HOLD_TICKS = 60;
+
+    /** True when ArcIO is on the server at runtime. */
+    private static final boolean ARCIO_PRESENT;
+    static {
+        boolean found = false;
+        try { Class.forName("voidbond.arcio.components.ArcioMechanismComponent"); found = true; }
+        catch (ClassNotFoundException ignored) {}
+        ARCIO_PRESENT = found;
+    }
     public int durationTimer = 0;
     public boolean isProcessing = false;
     public boolean hasFertilizer = false;
@@ -79,7 +106,35 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             CommandBuffer<ChunkStore> commandBuffer
     ) {
         World w = store.getExternalData().getWorld();
-        
+        if (w == null) return;
+
+        // Countdown the animation hold timer every tick.
+        if (animHoldTimer > 0) {
+            animHoldTimer--;
+            // Timer just expired — transition back to Off now.
+            if (animHoldTimer == 0 && isAnimating) {
+                applyBlockState(w, "Off");
+                isAnimating = false;
+            }
+        }
+
+        // If ArcIO is installed, register as a mechanism and check signal.
+        if (ARCIO_PRESENT) {
+            ensureArcioComponents(w);
+            boolean active = isArcioActive(w);
+            if (active != lastArcioActive) {
+                lastArcioActive = active;
+                HytaleLogger.getLogger().atInfo().log(
+                    "[Fertilizer %d,%d,%d] ArcIO signal %s",
+                    getBlockX(), getBlockY(), getBlockZ(),
+                    active ? "ON - fertilizer enabled" : "OFF - fertilizer paused");
+            }
+            if (!active) {
+                setAnimState(w, false);
+                return;
+            }
+        }
+
         // Check for items in the block's inventory slots
         if (processingTimer%20 == 0) { // Check every 20 ticks (about every second) to reduce overhead
         checkInputItems(w);
@@ -92,37 +147,46 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             // Water + Fertilizer: 1800 ticks for 1 minute (60 seconds * 30 TPS = 1800 ticks)
             if (hasFertilizer && hasWater && !hasFertilizerWater) {
                 if (processingTimer >= 1800) {
-                    applyGrowthTick(w);
+                    int advanced = applyGrowthTick(w);
+                    consumeResources();
                     processingTimer = 0;
+                    setAnimState(w, advanced > 0);
                     
                     // Stop after 1 minute (60 seconds * 30 TPS = 1800 ticks)
                     if (durationTimer >= 1800) {
                         stopProcessing();
+                        setAnimState(w, false);
                     }
                 }
             }
             // Fertilizer + Fertilizer Water: 15 ticks for 5 minutes (300 seconds * 30 TPS = 9000 ticks)
             else if (hasFertilizer && hasFertilizerWater) {
                 if (processingTimer >= 15) {
-                    applyGrowthTick(w);
+                    int advanced = applyGrowthTick(w);
+                    consumeResources();
                     processingTimer = 0;
+                    setAnimState(w, advanced > 0);
                     
                     // Stop after 5 minutes (300 seconds * 30 TPS = 9000 ticks)
                     if (durationTimer >= 9000) {
                         stopProcessing();
+                        setAnimState(w, false);
                     }
                 }
             } else {
                 // If we don't have the right combination, stop processing
                 stopProcessing();
+                setAnimState(w, false);
             }
         } else {
             timer++;
-            if (timer >= 300) { // Reduced from 150 to 300 (tick every 10 seconds instead of 5)
+            if (timer >= 300) {
                 timer = 0;
                 // Only apply growth tick when fueled (has fertilizer and water)
                 if (hasFertilizer && (hasWater || hasFertilizerWater)) {
-                    applyGrowthTick(w);
+                    int advanced = applyGrowthTick(w);
+                    consumeResources();
+                    setAnimState(w, advanced > 0);
                 }
             }
         }
@@ -130,6 +194,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         // Check if we need to stop processing due to lack of resources
         if (isProcessing && !hasFertilizer) {
             stopProcessing();
+            setAnimState(w, false);
         }
     }
 
@@ -167,8 +232,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         }
     }
 
-    private void applyGrowthTick(World w) {
-        
+    private int applyGrowthTick(World w) {
         int baseX = this.getBlockX();
         int baseY = this.getBlockY();
         int baseZ = this.getBlockZ();
@@ -271,14 +335,15 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                         } 
                     } 
                 } catch (Exception e) {
-                    //HytaleLogger.getLogger().atWarning().log("FertilizerState: Failed to apply growth to block at " + targetPos + ": " + e.getMessage());
+                    HytaleLogger.getLogger().atWarning().log(
+                        "[Fertilizer %d,%d,%d] growth tick failed at (%d,%d): %s",
+                        getBlockX(), getBlockY(), getBlockZ(), x, z, e.getMessage());
                 }
             }
         }
         
         
-        // Consume resources after applying growth tick
-        consumeResources();
+        return cropsAdvanced;
     }
 
     private void consumeResources() {
@@ -311,6 +376,66 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         hasWater = false;
         hasFertilizerWater = false;
         hasConsumedResources = false;
+    }
+
+    private void setAnimState(World w, boolean on) {
+        if (on) {
+            // Trigger On and (re)start the hold timer.
+            animHoldTimer = ANIM_HOLD_TICKS;
+            spawnFertilizerParticles(w);
+            if (!isAnimating) {
+                applyBlockState(w, "On");
+                isAnimating = true;
+            }
+        } else {
+            // Only switch to Off once the hold timer has expired.
+            if (animHoldTimer > 0) return;
+            if (isAnimating) {
+                applyBlockState(w, "Off");
+                isAnimating = false;
+            }
+        }
+    }
+
+    private void spawnFertilizerParticles(World w) {
+        try {
+            double cx = getBlockX() + 0.5;
+            double cy = getBlockY() + 0.5;
+            double cz = getBlockZ() + 0.5;
+            ComponentAccessor<EntityStore> accessor = w.getEntityStore().getStore();
+            ParticleUtil.spawnParticleEffect("Water_Can_Splash", new Vector3d(cx + 1, cy, cz), accessor);
+            ParticleUtil.spawnParticleEffect("Water_Can_Splash", new Vector3d(cx - 1, cy, cz), accessor);
+            ParticleUtil.spawnParticleEffect("Water_Can_Splash", new Vector3d(cx, cy, cz + 1), accessor);
+            ParticleUtil.spawnParticleEffect("Water_Can_Splash", new Vector3d(cx, cy, cz - 1), accessor);
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[Fertilizer %d,%d,%d] spawnFertilizerParticles failed: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+    }
+
+    private void applyBlockState(World world, String stateName) {
+        try {
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            WorldChunk chunk = world.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(bx, bz));
+            if (chunk == null) return;
+            BlockType current = chunk.getBlockType(new Vector3i(bx, by, bz));
+            if (current == null) return;
+            String stateKey = current.getBlockKeyForState(stateName);
+            if (stateKey == null) return;
+            var assetMap = BlockType.getAssetMap();
+            int idx = assetMap.getIndex(stateKey);
+            if (idx == Integer.MIN_VALUE) return;
+            BlockType target = (BlockType) assetMap.getAsset(idx);
+            int rot = chunk.getRotationIndex(bx, by, bz);
+            chunk.setBlock(bx, by, bz, idx, target, rot,
+                    SetBlockSettings.NONE,
+                    SetBlockSettings.NO_UPDATE_STATE | SetBlockSettings.NO_SEND_PARTICLES | 256);
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[Fertilizer %d,%d,%d] applyBlockState '%s' failed: %s",
+                getBlockX(), getBlockY(), getBlockZ(), stateName, e.getMessage());
+        }
     }
 
 
@@ -390,6 +515,125 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         
         // Just log the item being dropped, don't actually drop it
         //HytaleLogger.getLogger().atWarning().log("FertilizerState: Dropped item: " + itemStack.getItemId());
+    }
+
+    /**
+     * Ensures this block entity has the ArcIO mechanism and UUID components
+     * so it can be wired into ArcIO networks via manathreads.
+     */
+    private void ensureArcioComponents(World world) {
+        if (arcioInitialized) return;
+        try {
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            Store<ChunkStore> cs = world.getChunkStore().getStore();
+            Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                    ChunkUtil.indexChunkFromBlock(bx, bz));
+            if (chunkRef == null) return;
+            BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                    chunkRef, BlockComponentChunk.getComponentType());
+            if (bcc == null) return;
+            Ref<ChunkStore> blockRef = bcc.getEntityReference(ChunkUtil.indexBlockInColumn(bx, by, bz));
+            if (blockRef == null) return;
+
+            BlockUUIDComponent uuid = (BlockUUIDComponent) cs.getComponent(
+                    blockRef, BlockUUIDComponent.getComponentType());
+            if (uuid == null) {
+                uuid = BlockUUIDComponent.randomUUID();
+                uuid.setPosition(new Vector3i(bx, by, bz));
+                cs.putComponent(blockRef, BlockUUIDComponent.getComponentType(), uuid);
+                ArcioPlugin.get().putUUID(uuid.getUuid(), blockRef);
+                HytaleLogger.getLogger().atInfo().log(
+                    "[Fertilizer %d,%d,%d] Registered ArcIO UUID: %s",
+                    bx, by, bz, uuid.getUuid());
+            }
+
+            ArcioMechanismComponent mech = (ArcioMechanismComponent) cs.getComponent(
+                    blockRef, ArcioMechanismComponent.getComponentType());
+            if (mech == null) {
+                mech = new ArcioMechanismComponent("Fertilizer", 0, 1);
+                cs.putComponent(blockRef, ArcioMechanismComponent.getComponentType(), mech);
+                HytaleLogger.getLogger().atInfo().log(
+                    "[Fertilizer %d,%d,%d] Added ArcIO mechanism component (type=Fertilizer)",
+                    bx, by, bz);
+            }
+
+            arcioInitialized = true;
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[Fertilizer %d,%d,%d] Failed to ensure ArcIO components: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+    }
+
+    /**
+     * Checks if this block's ArcIO mechanism is active.
+     * First checks the block's own mechanism component (for manathread connections),
+     * then falls back to checking adjacent mechanisms for backwards compatibility.
+     */
+    private boolean isArcioActive(World world) {
+        try {
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            Store<ChunkStore> cs = world.getChunkStore().getStore();
+            Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                    ChunkUtil.indexChunkFromBlock(bx, bz));
+            if (chunkRef != null) {
+                BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                        chunkRef, BlockComponentChunk.getComponentType());
+                if (bcc != null) {
+                    Ref<ChunkStore> blockRef = bcc.getEntityReference(
+                            ChunkUtil.indexBlockInColumn(bx, by, bz));
+                    if (blockRef != null) {
+                        ArcioMechanismComponent mech = (ArcioMechanismComponent) cs.getComponent(
+                                blockRef, ArcioMechanismComponent.getComponentType());
+                        if (mech != null) {
+                            int signal = mech.getStrongestInputSignal(world);
+                            int required = mech.getRequiredSignal();
+                            if (signal >= required) return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[Fertilizer %d,%d,%d] ArcIO own-signal check failed: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+        return hasAdjacentActiveArcioMechanism(world);
+    }
+
+    /**
+     * Returns true if any of the 6 directly adjacent blocks has an ArcIO
+     * MechanismComponent whose signal meets or exceeds its required threshold (i.e. is "On").
+     */
+    private boolean hasAdjacentActiveArcioMechanism(World world) {
+        try {
+            Store<ChunkStore> cs = world.getChunkStore().getStore();
+            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            int[][] offsets = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
+            for (int[] off : offsets) {
+                int nx = bx + off[0], ny = by + off[1], nz = bz + off[2];
+                Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                        ChunkUtil.indexChunkFromBlock(nx, nz));
+                if (chunkRef == null) continue;
+                BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                        chunkRef, BlockComponentChunk.getComponentType());
+                if (bcc == null) continue;
+                Ref<ChunkStore> blockRef = bcc.getEntityReference(ChunkUtil.indexBlockInColumn(nx, ny, nz));
+                if (blockRef == null) continue;
+                ArcioMechanismComponent mc = (ArcioMechanismComponent) cs.getComponent(
+                        blockRef, ArcioMechanismComponent.getComponentType());
+                if (mc != null) {
+                    int signal = mc.getStrongestInputSignal(world);
+                    int required = mc.getRequiredSignal();
+                    if (signal >= required) return true;
+                }
+            }
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[Fertilizer %d,%d,%d] ArcIO adjacent check failed: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+        return false;
     }
 
     public static class Data extends StateData {
