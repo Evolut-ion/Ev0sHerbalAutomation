@@ -15,19 +15,22 @@ repositories {
         name = "hytale"
         url = uri("https://maven.hytale.com/release") // Or "hytale-pre-release" for pre-release versions
     }
+    maven {
+        name = "cursemaven"
+        url = uri("https://cursemaven.com")
+    }
 }
 
 dependencies {
     // Hytale Server API (provided by server at runtime)
-    compileOnly(files("libs/hytale-server.jar"))
-    
+    compileOnly("com.hypixel.hytale:Server:+")
+
     // ArcIO mod (provided by server at runtime, optional)
-    compileOnly(files("libs/Arcio-0.0.2.jar"))
-    
+    compileOnly("curse.maven:arcio-1473915:7692946")
+
     // Common dependencies (will be bundled in JAR)
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains:annotations:24.1.0")
-    implementation("com.hypixel.hytale:Server:+")
     
     // Test dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
