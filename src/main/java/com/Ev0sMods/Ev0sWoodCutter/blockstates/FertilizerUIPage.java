@@ -96,8 +96,14 @@ public final class FertilizerUIPage {
             for (SlotInfo info : slots) {
                 final ItemContainer srcContainer = info.container();
                 final short srcSlot = info.slot();
-                builder.addEventListener(info.id(), CustomUIEventBindingType.Activating, (ign, ctx) ->
-                        transferItem(playerRef, entityRef, store, pos, srcContainer, srcSlot, (short) 0));
+                builder.addEventListener(info.id(), CustomUIEventBindingType.Activating, (ign, ctx) -> {
+                    // Route to the correct block slot based on the item type:
+                    // fertilizer water → slot 1 (liquid), everything else → slot 0 (fertilizer).
+                    ItemStack moving = srcContainer.getItemStack(srcSlot);
+                    short target = (moving != null && FertilizerState.isFertilizerWater(moving.getItemId()))
+                            ? (short) 1 : (short) 0;
+                    transferItem(playerRef, entityRef, store, pos, srcContainer, srcSlot, target);
+                });
                 builder.addEventListener(info.id(), CustomUIEventBindingType.RightClicking, (ign, ctx) ->
                         transferItem(playerRef, entityRef, store, pos, srcContainer, srcSlot, (short) 1));
             }
