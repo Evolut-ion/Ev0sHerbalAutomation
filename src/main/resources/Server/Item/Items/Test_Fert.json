@@ -34,7 +34,13 @@
     "Material": "Solid",
     "RequiresAlphaBlending": true,
     "Interactions": {
-      "Use": "Open_Container"
+      "Use": {
+        "Interactions": [
+          {
+            "Type": "OpenFertilizer"
+          }
+        ]
+      }
     },
     "VariantRotation": "NESW"
   },

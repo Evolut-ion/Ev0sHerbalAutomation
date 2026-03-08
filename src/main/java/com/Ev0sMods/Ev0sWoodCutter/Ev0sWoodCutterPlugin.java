@@ -4,6 +4,7 @@ import com.Ev0sMods.Ev0sWoodCutter.blockstates.BlockPlacer;
 import com.Ev0sMods.Ev0sWoodCutter.blockstates.FertilizerState;
 import com.Ev0sMods.Ev0sWoodCutter.blockstates.WoodCutter;
 import com.Ev0sMods.Ev0sWoodCutter.interactions.CutterFarmingStageInteraction;
+import com.Ev0sMods.Ev0sWoodCutter.interactions.FertilizerInteraction;
 import com.Ev0sMods.Ev0sWoodCutter.interactions.WoodcutterChangeStateInteraction;
 import com.Ev0sMods.Ev0sWoodCutter.interactions.WoodcutterInteraction;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.Interaction;
@@ -34,6 +35,7 @@ public class Ev0sWoodCutterPlugin extends JavaPlugin {
         this.getCodecRegistry(Interaction.CODEC).register("OpenWoodcutter", WoodcutterInteraction.class, WoodcutterInteraction.CODEC);
         // Block-driven state change: called from tick when ArcIO signal changes, not by player.
         this.getCodecRegistry(Interaction.CODEC).register("WoodcutterChangeState", WoodcutterChangeStateInteraction.class, WoodcutterChangeStateInteraction.CODEC);
+        this.getCodecRegistry(Interaction.CODEC).register("OpenFertilizer", FertilizerInteraction.class, FertilizerInteraction.CODEC);
 
         // Register ArcIO mechanisms if ArcIO is installed
         // Uses reflection to avoid loading ArcIO classes during plugin class resolution

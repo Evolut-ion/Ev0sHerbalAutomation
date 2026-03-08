@@ -53,6 +53,8 @@ import voidbond.arcio.ArcioPlugin;
 import voidbond.arcio.components.ArcioMechanismComponent;
 import voidbond.arcio.components.BlockUUIDComponent;
 
+import com.hypixel.hytale.server.core.universe.PlayerRef;
+
 import javax.annotation.Nonnull;
 
 import java.util.ArrayList;
@@ -61,6 +63,40 @@ import java.util.Objects;
 
 @SuppressWarnings("removal")
 public class FertilizerState extends ItemContainerState implements TickableBlockState, ItemContainerBlockState {
+
+    // ── Fertilizer type registry ──────────────────────────────────────────────
+    /**
+     * Describes every fertilizer item accepted in slot 0.
+     *
+     * tickInterval – ticks between growth applications (at 30 TPS; 1800 = 60 s).
+     * treeOnly     – when true only sapling/tree blocks are targeted.
+     * standaloneWater – when true the item does NOT require liquid in slot 1.
+     */
+    public enum FertilizerType {
+        NONE                (0,    false, false),
+        STANDARD_WATER      (1800, false, false),  // any 'fertil*' item + liquid (fert water halves interval)
+        // NoCube's Orchard — all require liquid in slot 1
+        NOCUBE_TREE         (900,  true,  false),  // NoCube_Ingredient_Tree_Fertilizer (trees only)
+        // NoCube's Cultivation — all require liquid in slot 1
+        NOCUBE_LIME         (900,  false, false),  // NoCube_Tool_Fertilizer_Lime
+        NOCUBE_BONE         (450,  false, false),  // NoCube_Tool_Fertilizer_Bone
+        NOCUBE_SEASHELL     (225,  false, false),  // NoCube_Tool_Fertilizer_Seashell
+        NOCUBE_ELITE        (113,  false, false);  // NoCube_Tool_Fertilizer_Elite
+
+        public final int tickInterval;
+        public final boolean treeOnly;
+        /** True = no water in slot 1 required; consumes only from slot 0. */
+        public final boolean standalone;
+
+        FertilizerType(int tickInterval, boolean treeOnly, boolean standalone) {
+            this.tickInterval = tickInterval;
+            this.treeOnly = treeOnly;
+            this.standalone = standalone;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     public World w;
     private int square;
     public ItemContainer ic;
@@ -83,19 +119,33 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
 
     /** True when ArcIO is on the server at runtime. */
     private static final boolean ARCIO_PRESENT;
+    /** True when HyUI is on the server at runtime. */
+    static final boolean HYUI_PRESENT;
     static {
-        boolean found = false;
-        try { Class.forName("voidbond.arcio.components.ArcioMechanismComponent"); found = true; }
+        boolean arcio = false;
+        try { Class.forName("voidbond.arcio.components.ArcioMechanismComponent"); arcio = true; }
         catch (ClassNotFoundException ignored) {}
-        ARCIO_PRESENT = found;
+        ARCIO_PRESENT = arcio;
+
+        boolean hyui = false;
+        try { Class.forName("au.ellie.hyui.builders.PageBuilder"); hyui = true; }
+        catch (ClassNotFoundException ignored) {}
+        HYUI_PRESENT = hyui;
     }
+
     public int durationTimer = 0;
     public boolean isProcessing = false;
     public boolean hasFertilizer = false;
     public boolean hasWater = false;
     public boolean hasFertilizerWater = false;
     public boolean hasConsumedResources = false;
-    public int inputTimer = 0; // Timer for managing input processing
+    public int inputTimer = 0;
+    /** Active fertilizer type determined from slot 0. Package-private for UI access. */
+    FertilizerType activeFertilizerType = FertilizerType.NONE;
+    /** Effective tick interval — halved when fertilizer water is present in slot 1. */
+    public int effectiveTickInterval = 0;
+    /** Counter driving the UI auto-refresh every ~15 ticks. */
+    private int uiTick = 0;
 
     @Override
     public void tick(
@@ -135,104 +185,148 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             }
         }
 
-        // Check for items in the block's inventory slots
-        if (processingTimer%20 == 0) { // Check every 20 ticks (about every second) to reduce overhead
-        checkInputItems(w);
-        fixSlotAssignments(w);
+        // Check inventory every 20 ticks to reduce overhead.
+        if (processingTimer % 20 == 0) {
+            checkInputItems(w);
+            fixSlotAssignments(w);
         }
+
         if (isProcessing) {
             processingTimer++;
             durationTimer++;
-            
-            // Water + Fertilizer: 1800 ticks for 1 minute (60 seconds * 30 TPS = 1800 ticks)
-            if (hasFertilizer && hasWater && !hasFertilizerWater) {
-                if (processingTimer >= 1800) {
-                    int advanced = applyGrowthTick(w);
-                    consumeResources();
-                    processingTimer = 0;
-                    setAnimState(w, advanced > 0);
-                    
-                    // Stop after 1 minute (60 seconds * 30 TPS = 1800 ticks)
-                    if (durationTimer >= 1800) {
-                        stopProcessing();
-                        setAnimState(w, false);
-                    }
-                }
-            }
-            // Fertilizer + Fertilizer Water: 15 ticks for 5 minutes (300 seconds * 30 TPS = 9000 ticks)
-            else if (hasFertilizer && hasFertilizerWater) {
-                if (processingTimer >= 15) {
-                    int advanced = applyGrowthTick(w);
-                    consumeResources();
-                    processingTimer = 0;
-                    setAnimState(w, advanced > 0);
-                    
-                    // Stop after 5 minutes (300 seconds * 30 TPS = 9000 ticks)
-                    if (durationTimer >= 9000) {
-                        stopProcessing();
-                        setAnimState(w, false);
-                    }
-                }
-            } else {
-                // If we don't have the right combination, stop processing
+
+            int interval = effectiveTickInterval;
+            if (interval <= 0) {
+                // No valid fertilizer type — stop.
                 stopProcessing();
                 setAnimState(w, false);
+            } else if (processingTimer >= interval) {
+                int advanced = applyGrowthTick(w, activeFertilizerType.treeOnly);
+                consumeResources();
+                processingTimer = 0;
+                setAnimState(w, advanced > 0);
+                // One dose = one growth application.
+                stopProcessing();
             }
         } else {
             timer++;
             if (timer >= 300) {
                 timer = 0;
-                // Only apply growth tick when fueled (has fertilizer and water)
-                if (hasFertilizer && (hasWater || hasFertilizerWater)) {
-                    int advanced = applyGrowthTick(w);
+                if (activeFertilizerType != FertilizerType.NONE) {
+                    int advanced = applyGrowthTick(w, activeFertilizerType.treeOnly);
                     consumeResources();
                     setAnimState(w, advanced > 0);
                 }
             }
         }
-        
-        // Check if we need to stop processing due to lack of resources
+
+        // Safety: if fertilizer was consumed mid-tick, stop.
         if (isProcessing && !hasFertilizer) {
             stopProcessing();
             setAnimState(w, false);
         }
+
+        // UI auto-refresh every ~15 ticks (~500 ms at 30 TPS).
+        if (HYUI_PRESENT) {
+            uiTick++;
+            if (uiTick >= 15) {
+                uiTick = 0;
+                FertilizerUIPage.tickRefresh(this, w.getEntityStore().getStore(), getBlockPosition());
+            }
+        }
+    }
+
+    @Override
+    public void onOpen(Ref<EntityStore> playerEntityRef, World world, Store<EntityStore> store) {
+        if (!HYUI_PRESENT) return;
+        try {
+            PlayerRef playerRef = store.getComponent(playerEntityRef, PlayerRef.getComponentType());
+            if (playerRef == null) return;
+            FertilizerUIPage.open(playerRef, playerEntityRef, store, getBlockPosition());
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[Fertilizer %d,%d,%d] Failed to open UI: %s",
+                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+        }
+    }
+
+    /** Returns true if the given item ID represents any fertilizer (our own or NoCube). */
+    static boolean isFertilizer(String itemId) {
+        return itemId != null && itemId.toLowerCase().contains("fertil");
+    }
+
+    /** Returns true if the given item ID is specifically fertilizer water (liquid slot only). */
+    static boolean isFertilizerWater(String itemId) {
+        if (itemId == null) return false;
+        String id = itemId.startsWith("*") ? itemId.substring(1) : itemId;
+        return id.equals("Container_Bucket_State_Filled_Fertilizer_Water");
     }
 
     private void checkInputItems(World w) {
-        // Check items in the container slots
-        if (this.getItemContainer() != null) {
-            // Slot 0: Fertilizer
-            ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short)0);
-            // Slot 1: Water or Fertilizer Water
-            ItemStack waterSlot = this.getItemContainer().getItemStack((short)1);
-            
-            hasFertilizer = fertilizerSlot != null && fertilizerSlot.getItemId().equals("Tool_Fertilizer");
-            hasWater = waterSlot != null && (
-                waterSlot.getItemId().equals("Container_Bucket_State_Filled_Water") ||
-                waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Water")
-            );
-            hasFertilizerWater = waterSlot != null && (
-                waterSlot.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
-                waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
-            );
-            
-            // Only start processing if we have fertilizer and either water or fertilizer water
-            if (hasFertilizer && (hasWater || hasFertilizerWater)) {
-                isProcessing = true;
-                // Don't reset processingTimer here - only reset it after applying growth tick
-                hasConsumedResources = false; // Reset consumption flag when starting
-            } else {
-                isProcessing = false;
-            }
-        } else {
+        if (this.getItemContainer() == null) {
             hasFertilizer = false;
             hasWater = false;
             hasFertilizerWater = false;
+            activeFertilizerType = FertilizerType.NONE;
+            isProcessing = false;
+            return;
+        }
+
+        ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short) 0);
+        ItemStack waterSlot      = this.getItemContainer().getItemStack((short) 1);
+
+        hasFertilizer = fertilizerSlot != null && isFertilizer(fertilizerSlot.getItemId());
+        hasWater = waterSlot != null && (
+            waterSlot.getItemId().equals("Container_Bucket_State_Filled_Water") ||
+            waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Water")
+        );
+        hasFertilizerWater = waterSlot != null && (
+            waterSlot.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
+            waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
+        );
+
+        // Resolve the specific fertilizer type from slot 0.
+        // All types now require liquid in slot 1; fertilizer water halves the tick interval.
+        boolean hasLiquid = hasWater || hasFertilizerWater;
+        if (hasFertilizer) {
+            String fid = fertilizerSlot.getItemId();
+            if (fid.equals("NoCube_Ingredient_Tree_Fertilizer")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_TREE : FertilizerType.NONE;
+            } else if (fid.equals("NoCube_Tool_Fertilizer_Lime")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_LIME : FertilizerType.NONE;
+            } else if (fid.equals("NoCube_Tool_Fertilizer_Bone")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_BONE : FertilizerType.NONE;
+            } else if (fid.equals("NoCube_Tool_Fertilizer_Seashell")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_SEASHELL : FertilizerType.NONE;
+            } else if (fid.equals("NoCube_Tool_Fertilizer_Elite")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_ELITE : FertilizerType.NONE;
+            } else if (hasLiquid) {
+                activeFertilizerType = FertilizerType.STANDARD_WATER;
+            } else {
+                // Standard fertilizer present but no liquid — cannot process.
+                activeFertilizerType = FertilizerType.NONE;
+            }
+        } else {
+            activeFertilizerType = FertilizerType.NONE;
+        }
+
+        // Fertilizer water halves the effective tick interval for faster growth.
+        effectiveTickInterval = (activeFertilizerType.tickInterval > 0 && hasFertilizerWater)
+                ? Math.max(1, activeFertilizerType.tickInterval / 2)
+                : activeFertilizerType.tickInterval;
+
+        boolean canProcess = activeFertilizerType != FertilizerType.NONE;
+        if (canProcess) {
+            if (!isProcessing) {
+                isProcessing = true;
+                hasConsumedResources = false;
+            }
+        } else {
             isProcessing = false;
         }
     }
 
-    private int applyGrowthTick(World w) {
+    private int applyGrowthTick(World w, boolean treeOnly) {
         int baseX = this.getBlockX();
         int baseY = this.getBlockY();
         int baseZ = this.getBlockZ();
@@ -268,17 +362,22 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         int cropsFound = 0;
         int cropsAdvanced = 0;
         
-        // Apply growth to crops in the affected area
+        // Apply growth to blocks in the affected area.
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
                 Vector3i targetPos = new Vector3i(x, baseY, z);
-                
+
                 try {
-                    // Get the chunk and check if there's a farming block at this position
                     WorldChunk chunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(x, z));
                     if (chunk != null) {
                         BlockType blockType = chunk.getBlockType(targetPos);
                         if (blockType != null && blockType.getFarming() != null) {
+                            // Tree-only fertilizers skip non-sapling blocks.
+                            if (treeOnly) {
+                                String bid = blockType.getId();
+                                boolean isSapling = bid.startsWith("Plant_Sapling_") || bid.contains("_Sapling");
+                                if (!isSapling) continue;
+                            }
                             cropsFound++;
                             
                             // Get the FarmingBlock component and advance its growth
@@ -347,24 +446,25 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
     }
 
     private void consumeResources() {
-        if (this.getItemContainer() != null) {
-            // Remove one fertilizer from slot 0
-            ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short)0);
-            if (fertilizerSlot != null && fertilizerSlot.getItemId().equals("Tool_Fertilizer")) {
-                this.getItemContainer().removeItemStackFromSlot((short)0, 1);
-            }
-            
-            // Remove one water or fertilizer water from slot 1
-            ItemStack waterSlot = this.getItemContainer().getItemStack((short)1);
-            if (waterSlot != null && (
-                waterSlot.getItemId().equals("Container_Bucket_State_Filled_Water") ||
-                waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Water") ||
-                waterSlot.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
-                waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
-            )) {
-                this.getItemContainer().removeItemStackFromSlot((short)1, 1);
-                //HytaleLogger.getLogger().atInfo().log("FertilizerState: Consumed 1 water/fertilizer water from slot 1");
-            }
+        if (this.getItemContainer() == null) return;
+
+        // Consume one fertilizer from slot 0 (any item containing 'fertil').
+        ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short) 0);
+        if (fertilizerSlot != null && isFertilizer(fertilizerSlot.getItemId())) {
+            this.getItemContainer().removeItemStackFromSlot((short) 0, 1);
+        }
+
+        // NoCube fertilizers are standalone – they do not consume liquid from slot 1.
+        if (activeFertilizerType.standalone) return;
+
+        ItemStack waterSlot = this.getItemContainer().getItemStack((short) 1);
+        if (waterSlot != null && (
+            waterSlot.getItemId().equals("Container_Bucket_State_Filled_Water") ||
+            waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Water") ||
+            waterSlot.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
+            waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
+        )) {
+            this.getItemContainer().removeItemStackFromSlot((short) 1, 1);
         }
     }
 
@@ -376,6 +476,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         hasWater = false;
         hasFertilizerWater = false;
         hasConsumedResources = false;
+        activeFertilizerType = FertilizerType.NONE;
     }
 
     private void setAnimState(World w, boolean on) {
@@ -446,11 +547,12 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             // Initialize item container for the processing bench
             ic = new SimpleItemContainer((short)2); // 2 slots: fertilizer and water/fertilizer water
             
-            // Set slot filters to only allow specific items in specific slots
-            // Slot 0: Only allow fertilizer
-            ic.setSlotFilter(FilterActionType.ADD, (short)0, (actionType, container, slot, itemStack) -> {
-                return itemStack != null && itemStack.getItemId().equals("Tool_Fertilizer");
-            });
+            // Set slot filters to only allow specific items in specific slots.
+            // Slot 0: Any item whose ID contains 'fertil' (case-insensitive) —
+            //         covers our own items, NoCube's Orchard, NoCube's Cultivation, etc.
+            //         Fertilizer water is excluded here — it belongs in slot 1.
+            ic.setSlotFilter(FilterActionType.ADD, (short) 0, (actionType, container, slot, itemStack) ->
+                itemStack != null && isFertilizer(itemStack.getItemId()) && !isFertilizerWater(itemStack.getItemId()));
             
             // Slot 1: Only allow water or fertilizer water
             ic.setSlotFilter(FilterActionType.ADD, (short)1, (actionType, container, slot, itemStack) -> {
@@ -487,8 +589,8 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         ItemStack slot0 = this.getItemContainer().getItemStack((short)0);
         ItemStack slot1 = this.getItemContainer().getItemStack((short)1);
         
-        // Check if items are in wrong slots
-        boolean slot0Wrong = slot0 != null && !slot0.getItemId().equals("Tool_Fertilizer");
+        // Check if items are in wrong slots.
+        boolean slot0Wrong = slot0 != null && (!isFertilizer(slot0.getItemId()) || isFertilizerWater(slot0.getItemId()));
         boolean slot1Wrong = slot1 != null && !(
             slot1.getItemId().equals("Container_Bucket_State_Filled_Water") ||
             slot1.getItemId().equals("*Container_Bucket_State_Filled_Water") ||
@@ -588,7 +690,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                         if (mech != null) {
                             int signal = mech.getStrongestInputSignal(world);
                             int required = mech.getRequiredSignal();
-                            if (signal >= required) return true;
+                            if (signal > 0 && signal >= required) return true;
                         }
                     }
                 }
@@ -625,7 +727,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 if (mc != null) {
                     int signal = mc.getStrongestInputSignal(world);
                     int required = mc.getRequiredSignal();
-                    if (signal >= required) return true;
+                    if (signal > 0 && signal >= required) return true;
                 }
             }
         } catch (Exception e) {

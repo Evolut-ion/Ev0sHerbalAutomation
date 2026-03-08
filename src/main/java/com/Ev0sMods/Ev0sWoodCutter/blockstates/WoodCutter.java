@@ -486,7 +486,7 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         if (mech != null) {
                             int signal = mech.getStrongestInputSignal(world);
                             int required = mech.getRequiredSignal();
-                            if (signal >= required) return true;
+                            if (signal > 0 && signal >= required) return true;
                         }
                     }
                 }
@@ -524,7 +524,7 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                 if (mc != null) {
                     int signal = mc.getStrongestInputSignal(world);
                     int required = mc.getRequiredSignal();
-                    if (signal >= required) return true;
+                    if (signal > 0 && signal >= required) return true;
                 }
             }
         } catch (Exception e) {

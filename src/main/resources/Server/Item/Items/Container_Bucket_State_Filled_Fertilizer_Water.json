@@ -1,0 +1,906 @@
+{
+  "TranslationProperties": {
+    "Name": "server.items.Container_Bucket.name",
+    "Description": "server.items.Container_Bucket.description"
+  },
+  "Icon": "Icons/ItemsGenerated/Container_Bucket.png",
+  "ItemLevel": 5,
+  "MaxStack": 1,
+  "IconProperties": {
+    "Scale": 0.58823,
+    "Rotation": [
+      0.0,
+      121.0,
+      25.0
+    ],
+    "Translation": [
+      -3.0,
+      -18.0
+    ]
+  },
+  "Categories": [
+    "Furniture.Containers"
+  ],
+  "Recipe": {
+    "TimeSeconds": 2,
+    "KnowledgeRequired": false,
+    "Input": [
+      {
+        "ItemId": "*Container_Bucket_State_Filled_Water",
+        "Quantity": 1
+      },
+      {
+        "ItemId": "Tool_Fertilizer",
+        "Quantity": 5
+      }
+    ],
+    "BenchRequirement": [
+      {
+        "Id": "Farmingbench",
+        "Type": "Crafting",
+        "Categories": [
+          "Farming"
+        ]
+      }
+    ]
+  },
+  "Interactions": {
+    "Secondary": {
+      "Interactions": [
+        {
+          "Type": "Condition",
+          "Crouching": false,
+          "Next": {
+            "$Comment": "Not crouching: try water, then milk, then nothing",
+            "Type": "RefillContainer",
+            "Effects": {
+              "ClearSoundEventOnFinish": true,
+              "LocalSoundEventId": "SFX_Water_MoveIn"
+            },
+            "States": {
+              "Filled_Water": {
+                "AllowedFluids": [
+                  "Water_Source"
+                ],
+                "TransformFluid": "Empty",
+                "Durability": 1
+              },
+              "Filled_Lava": {
+                "AllowedFluids": [
+                  "Lava_Source",
+                  "Fluid_Lava",
+                  "Lava"
+                ],
+                "TransformFluid": "Empty",
+                "Durability": 1
+              },
+              "Filled_Red_Slime": {
+                "AllowedFluids": [
+                  "Fluid_Slime_Red",
+                  "Slime_Red_Source"
+                ],
+                "TransformFluid": "Empty",
+                "Durability": 1
+              },
+              "Filled_Slime": {
+                "AllowedFluids": [
+                  "Fluid_Slime",
+                  "Slime_Source"
+                ],
+                "TransformFluid": "Empty",
+                "Durability": 1
+              }
+            },
+            "Failed": "Bucket_Milk_Cow"
+          },
+          "Failed": {
+            "$Comment": "Crouching: try water, then milk, then place bucket",
+            "Type": "RefillContainer",
+            "Effects": {
+              "ClearSoundEventOnFinish": true,
+              "LocalSoundEventId": "SFX_Water_MoveIn"
+            },
+            "States": {
+              "Filled_Water": {
+                "AllowedFluids": [
+                  "Water_Source"
+                ],
+                "TransformFluid": "Empty"
+              },
+              "Filled_Lava": {
+                "AllowedFluids": [
+                  "Lava_Source",
+                  "Lava",
+                  "Fluid_Lava"
+                ],
+                "TransformFluid": "Empty"
+              }
+            },
+            "Failed": "Bucket_Milk_Cow_Crouching"
+          }
+        }
+      ]
+    }
+  },
+  "State": {
+    "Filled_Water": {
+      "Variant": true,
+      "$TODO": "Parent: Container_Bucket",
+      "TranslationProperties": {
+        "Name": "Water Bucket",
+        "Description": "server.items.Container_Bucket_Water.description"
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Water.png",
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Recipe": null,
+      "Interactions": {
+        "Secondary": {
+          "Interactions": [
+            {
+              "Type": "PlaceFluid",
+              "RemoveItemInHand": true,
+              "Next": {
+                "Type": "ModifyInventory",
+                "AdjustHeldItemDurability": -1,
+                "BrokenItem": "Container_Bucket"
+              },
+              "FluidToPlace": "Water_Source",
+              "Effects": {
+                "ClearSoundEventOnFinish": true,
+                "LocalSoundEventId": "SFX_WATER_MoveOut"
+              }
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Water.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": false
+          },
+          "UseDefaultDropWhenPlaced": true,
+          "Breaking": {
+            "Quantity": 1,
+            "DropList": {}
+          },
+          "Harvest": {}
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "ResourceTypes": [
+        {
+          "Id": "Fertilizers"
+        }
+      ]
+    },
+    "Filled_Lava": {
+      "Variant": true,
+      "$TODO": "Parent: Container_Bucket",
+      "TranslationProperties": {
+        "Name": "Lava Bucket",
+        "Description": "server.items.Container_Bucket_Water.description"
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Water.png",
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Recipe": null,
+      "Interactions": {
+        "Secondary": {
+          "Interactions": [
+            {
+              "Type": "PlaceFluid",
+              "RemoveItemInHand": true,
+              "Next": {
+                "Type": "ModifyInventory",
+                "AdjustHeldItemDurability": -1,
+                "BrokenItem": "Container_Bucket"
+              },
+              "FluidToPlace": "Lava_Source",
+              "Effects": {
+                "ClearSoundEventOnFinish": true,
+                "LocalSoundEventId": "SFX_WATER_MoveOut"
+              }
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Water.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": false
+          },
+          "UseDefaultDropWhenPlaced": true,
+          "Breaking": {
+            "Quantity": 1,
+            "DropList": {}
+          },
+          "Harvest": {}
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "ResourceTypes": [
+        {
+          "Id": "Lava_Bucket"
+        }
+      ]
+    },
+    "Filled_Milk": {
+      "Variant": true,
+      "TranslationProperties": {
+        "Name": "server.items.Container_Bucket_Milk.name",
+        "Description": "server.items.Container_Bucket_Milk.description"
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Milk.png",
+      "ResourceTypes": [
+        {
+          "Id": "Milk_Bucket",
+          "Quantity": 1
+        }
+      ],
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Interactions": {
+        "Secondary": "Root_Secondary_Consume_Drink"
+      },
+      "InteractionVars": {
+        "Effect": {
+          "Interactions": [
+            {
+              "Type": "ApplyEffect",
+              "EffectId": "Antidote"
+            }
+          ]
+        },
+        "ConsumeSFX": {
+          "Interactions": [
+            {
+              "Parent": "Consume_SFX",
+              "Effects": {
+                "LocalSoundEventId": "SFX_Health_Potion_High_Drink"
+              }
+            }
+          ]
+        },
+        "ConsumedSFX": {
+          "Interactions": [
+            {
+              "Parent": "Consumed_SFX",
+              "Effects": {
+                "LocalSoundEventId": "SFX_Water_MoveOut"
+              }
+            }
+          ]
+        },
+        "DurabilityModify": {
+          "Interactions": [
+            {
+              "Type": "ModifyInventory",
+              "AdjustHeldItemDurability": -1,
+              "BrokenItem": "Container_Bucket"
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Milk.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": true
+          }
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "PlayerAnimationsId": {
+        "Parent": "Item",
+        "Animations": {
+          "Consume": {
+            "FirstPerson": "Characters/Animations/Items/Main_Handed/Item/Attacks/Drink/Drink_FPS.blockyanim",
+            "ThirdPerson": "Characters/Animations/Items/Main_Handed/Item/Attacks/Drink/Drink.blockyanim",
+            "Speed": 1,
+            "Looping": true
+          }
+        }
+      }
+    },
+    "Filled_Mosshorn_Milk": {
+      "Variant": true,
+      "TranslationProperties": {
+        "Name": "server.items.Container_Bucket_Mosshorn_Milk.name",
+        "Description": "server.items.Container_Bucket_Mosshorn_Milk.description"
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Milk_Mosshorn.png",
+      "ResourceTypes": [
+        {
+          "Id": "Milk_Mosshorn_Bucket",
+          "Quantity": 1
+        }
+      ],
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Interactions": {
+        "Secondary": "Root_Secondary_Consume_Drink"
+      },
+      "InteractionVars": {
+        "Effect": {
+          "Interactions": [
+            {
+              "Type": "ApplyEffect",
+              "EffectId": "Potion_Morph_Mosshorn"
+            }
+          ]
+        },
+        "ConsumeSFX": {
+          "Interactions": [
+            {
+              "Parent": "Consume_SFX",
+              "Effects": {
+                "LocalSoundEventId": "SFX_Health_Potion_High_Drink"
+              }
+            }
+          ]
+        },
+        "ConsumedSFX": {
+          "Interactions": [
+            {
+              "Parent": "Consumed_SFX",
+              "Effects": {
+                "LocalSoundEventId": "SFX_Water_MoveOut"
+              }
+            }
+          ]
+        },
+        "DurabilityModify": {
+          "Interactions": [
+            {
+              "Type": "ModifyInventory",
+              "AdjustHeldItemDurability": -1,
+              "BrokenItem": "Container_Bucket"
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Mosshorn_Milk.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": true
+          }
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "PlayerAnimationsId": {
+        "Parent": "Item",
+        "Animations": {
+          "Consume": {
+            "FirstPerson": "Characters/Animations/Items/Main_Handed/Item/Attacks/Drink/Drink_FPS.blockyanim",
+            "ThirdPerson": "Characters/Animations/Items/Main_Handed/Item/Attacks/Drink/Drink.blockyanim",
+            "Speed": 1,
+            "Looping": true
+          }
+        }
+      }
+    },
+    "Filled_Red_Slime": {
+      "Variant": true,
+      "$TODO": "Parent: Container_Bucket",
+      "TranslationProperties": {
+        "Name": "Red Slime Bucket",
+        "Description": ""
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Water.png",
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Recipe": null,
+      "Interactions": {
+        "Secondary": {
+          "Interactions": [
+            {
+              "Type": "PlaceFluid",
+              "RemoveItemInHand": true,
+              "Next": {
+                "Type": "ModifyInventory",
+                "AdjustHeldItemDurability": -1,
+                "BrokenItem": "Container_Bucket"
+              },
+              "FluidToPlace": "Slime_Red_Source",
+              "Effects": {
+                "ClearSoundEventOnFinish": true,
+                "LocalSoundEventId": "SFX_WATER_MoveOut"
+              }
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Water.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": false
+          },
+          "UseDefaultDropWhenPlaced": true,
+          "Breaking": {
+            "Quantity": 1,
+            "DropList": {}
+          },
+          "Harvest": {}
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "ResourceTypes": [
+        {
+          "Id": "Red_Slime_Bucket"
+        }
+      ]
+    },
+    "Filled_Green_Slime": {
+      "Variant": true,
+      "$TODO": "Parent: Container_Bucket",
+      "TranslationProperties": {
+        "Name": "Green Slime Bucket",
+        "Description": ""
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Water.png",
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Recipe": null,
+      "Interactions": {
+        "Secondary": {
+          "Interactions": [
+            {
+              "Type": "PlaceFluid",
+              "RemoveItemInHand": true,
+              "Next": {
+                "Type": "ModifyInventory",
+                "AdjustHeldItemDurability": -1,
+                "BrokenItem": "Container_Bucket"
+              },
+              "FluidToPlace": "Slime_Source",
+              "Effects": {
+                "ClearSoundEventOnFinish": true,
+                "LocalSoundEventId": "SFX_WATER_MoveOut"
+              }
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Water.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": false
+          },
+          "UseDefaultDropWhenPlaced": true,
+          "Breaking": {
+            "Quantity": 1,
+            "DropList": {}
+          },
+          "Harvest": {}
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "ResourceTypes": [
+        {
+          "Id": "Slime_Bucket"
+        }
+      ]
+    },
+    "Filled_Tar": {
+      "Variant": true,
+      "$TODO": "Parent: Container_Bucket",
+      "TranslationProperties": {
+        "Name": "Tar Bucket",
+        "Description": ""
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Water.png",
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Recipe": null,
+      "Interactions": {
+        "Secondary": {
+          "Interactions": [
+            {
+              "Type": "PlaceFluid",
+              "RemoveItemInHand": true,
+              "Next": {
+                "Type": "ModifyInventory",
+                "AdjustHeldItemDurability": -1,
+                "BrokenItem": "Container_Bucket"
+              },
+              "FluidToPlace": "Tar_Source",
+              "Effects": {
+                "ClearSoundEventOnFinish": true,
+                "LocalSoundEventId": "SFX_WATER_MoveOut"
+              }
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Water.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": false
+          },
+          "UseDefaultDropWhenPlaced": true,
+          "Breaking": {
+            "Quantity": 1,
+            "DropList": {}
+          },
+          "Harvest": {}
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "ResourceTypes": [
+        {
+          "Id": "Tar_Bucket"
+        }
+      ]
+    },
+    "Filled_Poison": {
+      "Variant": true,
+      "$TODO": "Parent: Container_Bucket",
+      "TranslationProperties": {
+        "Name": "Poison Bucket",
+        "Description": ""
+      },
+      "Icon": "Icons/ItemsGenerated/Container_Bucket_Water.png",
+      "IconProperties": {
+        "Scale": 0.58823,
+        "Rotation": [
+          0.0,
+          121.0,
+          25.0
+        ],
+        "Translation": [
+          -3.0,
+          -18.0
+        ]
+      },
+      "Recipe": null,
+      "Interactions": {
+        "Secondary": {
+          "Interactions": [
+            {
+              "Type": "PlaceFluid",
+              "RemoveItemInHand": true,
+              "Next": {
+                "Type": "ModifyInventory",
+                "AdjustHeldItemDurability": -1,
+                "BrokenItem": "Container_Bucket"
+              },
+              "FluidToPlace": "Poison_Source",
+              "Effects": {
+                "ClearSoundEventOnFinish": true,
+                "LocalSoundEventId": "SFX_WATER_MoveOut"
+              }
+            }
+          ]
+        }
+      },
+      "Consumable": true,
+      "MaxDurability": 1,
+      "MaxStack": 1,
+      "$Comment": "FOLLOWING PROPERTIES DUPLICATED BECAUSE OF SERVER BUG",
+      "BlockType": {
+        "Material": "Empty",
+        "DrawType": "Model",
+        "Opacity": "Transparent",
+        "CustomModel": "Blocks/Decorative_Sets/Village/Bucket_Full.blockymodel",
+        "CustomModelTexture": [
+          {
+            "Weight": 1,
+            "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture_Water.png"
+          }
+        ],
+        "CustomModelScale": 0.75,
+        "RandomRotation": "YawStep1",
+        "Gathering": {
+          "Soft": {
+            "IsWeaponBreakable": false
+          },
+          "UseDefaultDropWhenPlaced": true,
+          "Breaking": {
+            "Quantity": 1,
+            "DropList": {}
+          },
+          "Harvest": {}
+        },
+        "HitboxType": "Plant_Full",
+        "BlockParticleSetId": "Wood",
+        "BlockSoundSetId": "Wood",
+        "Support": {
+          "Down": [
+            {
+              "FaceType": "Full"
+            }
+          ]
+        }
+      },
+      "ResourceTypes": [
+        {
+          "Id": "Tar_Bucket"
+        }
+      ]
+    }
+  },
+  "BlockType": {
+    "Material": "Solid",
+    "DrawType": "Model",
+    "Opacity": "Transparent",
+    "CustomModel": "Blocks/Decorative_Sets/Village/Bucket.blockymodel",
+    "CustomModelTexture": [
+      {
+        "Weight": 1,
+        "Texture": "Blocks/Decorative_Sets/Village/Bucket_Texture.png"
+      }
+    ],
+    "CustomModelScale": 0.75,
+    "RandomRotation": "YawStep1",
+    "Gathering": {
+      "Soft": {
+        "IsWeaponBreakable": false
+      },
+      "Harvest": {}
+    },
+    "HitboxType": "Plant_Full",
+    "BlockParticleSetId": "Wood",
+    "BlockSoundSetId": "Wood",
+    "ParticleColor": "#63412c",
+    "Support": {
+      "Down": [
+        {
+          "FaceType": "Full"
+        }
+      ]
+    }
+  },
+  "PlayerAnimationsId": "Item",
+  "Tags": {
+    "Type": [
+      "Container"
+    ]
+  },
+  "ItemSoundSetId": "ISS_Blocks_Wood",
+  "Set": ""
+}

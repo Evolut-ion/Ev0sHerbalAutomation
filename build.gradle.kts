@@ -28,6 +28,9 @@ dependencies {
     // ArcIO mod (provided by server at runtime, optional)
     compileOnly("curse.maven:arcio-1473915:7692946")
 
+    // HyUI — Hytale UI library (provided by server at runtime, optional)
+    compileOnly("curse.maven:hyui-1431415:7603155")
+
     // Common dependencies (will be bundled in JAR)
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains:annotations:24.1.0")

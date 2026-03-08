@@ -272,7 +272,7 @@ public class BlockPlacer extends ItemContainerState implements TickableBlockStat
                         if (mech != null) {
                             int signal = mech.getStrongestInputSignal(world);
                             int required = mech.getRequiredSignal();
-                            if (signal >= required) return true;
+                            if (signal > 0 && signal >= required) return true;
                         }
                     }
                 }
@@ -309,7 +309,7 @@ public class BlockPlacer extends ItemContainerState implements TickableBlockStat
                 if (mc != null) {
                     int signal = mc.getStrongestInputSignal(world);
                     int required = mc.getRequiredSignal();
-                    if (signal >= required) return true;
+                    if (signal > 0 && signal >= required) return true;
                 }
             }
         } catch (Exception e) {
