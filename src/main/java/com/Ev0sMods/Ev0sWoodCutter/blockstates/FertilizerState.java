@@ -338,23 +338,23 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         switch (rotation) {
             case 0: // Facing positive Z
                 minX = baseX - 2; maxX = baseX + 2;
-                minZ = baseZ; maxZ = baseZ + 5;
+                minZ = baseZ + 1; maxZ = baseZ + 5;
                 break;
             case 1: // Facing negative Z
                 minX = baseX - 2; maxX = baseX + 2;
-                minZ = baseZ - 5; maxZ = baseZ;
+                minZ = baseZ - 5; maxZ = baseZ - 1;
                 break;
             case 2: // Facing positive X
-                minX = baseX; maxX = baseX + 5;
+                minX = baseX + 1; maxX = baseX + 5;
                 minZ = baseZ - 2; maxZ = baseZ + 2;
                 break;
             case 3: // Facing negative X
-                minX = baseX - 5; maxX = baseX;
+                minX = baseX - 5; maxX = baseX - 1;
                 minZ = baseZ - 2; maxZ = baseZ + 2;
                 break;
             default:
                 minX = baseX - 2; maxX = baseX + 2;
-                minZ = baseZ; maxZ = baseZ + 5;
+                minZ = baseZ + 1; maxZ = baseZ + 5;
                 break;
         }
         

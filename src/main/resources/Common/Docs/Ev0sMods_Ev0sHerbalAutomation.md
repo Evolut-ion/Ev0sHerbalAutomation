@@ -17,8 +17,8 @@ Ev0s Herbal Automation adds three automation machines designed to streamline far
 An automated harvester that ticks every 5 seconds. On each tick it:
 
 1. Collects nearby dropped item entities into its inventory.
-2. Scans a **5 × 6 area** in front of it (2 blocks left/right, 5 blocks deep) and harvests any tree logs and ripe crops it finds.
-3. Accelerates sapling growth in the same area.
+2. Scans a **5 × 5 area** in front of it and harvests any tree logs and ripe crops it finds.
+
 
 Harvested items are stored directly in the machine's inventory. Right-click the machine to open its container and retrieve items.
 
@@ -39,7 +39,7 @@ Load saplings or seeds into the machine's single inventory slot. Right-click to 
 
 ### ![Fertilizer Block {64x0}](Icons/ItemsGenerated/FertilizerBlock.png) Fertilizer Block
 
-An automated crop accelerator. It reads the fertilizer item in **Slot 0** and the liquid in **Slot 1**, then periodically applies a growth tick to crops and saplings in a **5 × 5 area** in front of it (based on its facing direction).
+An automated crop accelerator. It reads the fertilizer item in **Slot 0** and the liquid in **Slot 1**, then periodically applies a growth tick to crops and saplings in a **5 × 5 area** in front of it.
 
 #### Slot layout
 
@@ -88,6 +88,6 @@ ArcIO is not required — machines operate normally without it.
 
 ## Tips
 
-- The Fertilizer Block's facing direction determines which direction the 5 × 5 growth area extends. Place it facing your crop field.
+- The Cutter Block's facing direction determines which direction the 5 × 5 growth area extends. Place it facing your crop field.
 - The Block Placer plants 3 blocks above itself — position it beneath your field.
 - The Wood Cutter auto-collects dropped items in its area, so it also acts as a hopper for nearby drops.

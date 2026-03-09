@@ -164,11 +164,11 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         z = baseZ - dz;
                     }
                     if(this.getRotationIndex()== 2){
-                         x = baseX - dz;
+                         x = baseX + dz;
                          z = baseZ + dx;
                     }
                     if(this.getRotationIndex()== 3){
-                        x = baseX + dz;
+                        x = baseX - dz;
                         z = baseZ + dx;
                     }
                    // chunk.markNeedsSaving();
