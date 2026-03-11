@@ -75,6 +75,10 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
     public enum FertilizerType {
         NONE                (0,    false, false),
         STANDARD_WATER      (1800, false, false),  // any 'fertil*' item + liquid (fert water halves interval)
+        // Custom fertilizers matching NoCube speeds
+        TOOL_COMPOST        (900,  false, false),  // Tool_Compost, matches Nocube Lime
+        TOOL_SUPER_COMPOST  (450,  false, false),  // Tool_Super_Compost, matches Nocube Bone
+        TOOL_SUPER_COMPOST_MATCHING (450, false, false), // Tool_Super_Compost_Matching, matches Nocube Bone
         // NoCube's Orchard — all require liquid in slot 1
         NOCUBE_TREE         (900,  true,  false),  // NoCube_Ingredient_Tree_Fertilizer (trees only)
         // NoCube's Cultivation — all require liquid in slot 1
@@ -290,7 +294,14 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         boolean hasLiquid = hasWater || hasFertilizerWater;
         if (hasFertilizer) {
             String fid = fertilizerSlot.getItemId();
-            if (fid.equals("NoCube_Ingredient_Tree_Fertilizer")) {
+            // Custom fertilizer IDs
+            if (fid.equals("Tool_Compost")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.TOOL_COMPOST : FertilizerType.NONE;
+            } else if (fid.equals("Tool_Super_Compost")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.TOOL_SUPER_COMPOST : FertilizerType.NONE;
+            } else if (fid.equals("Tool_Super_Compost_Matching")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.TOOL_SUPER_COMPOST_MATCHING : FertilizerType.NONE;
+            } else if (fid.equals("NoCube_Ingredient_Tree_Fertilizer")) {
                 activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_TREE : FertilizerType.NONE;
             } else if (fid.equals("NoCube_Tool_Fertilizer_Lime")) {
                 activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_LIME : FertilizerType.NONE;
@@ -332,117 +343,182 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         int baseZ = this.getBlockZ();
         int rotation = getRotationIndex();
 
-        // Define the area to affect based on rotation
-        int minX, maxX, minZ, maxZ;
         
-        switch (rotation) {
-            case 0: // Facing positive Z
-                minX = baseX - 2; maxX = baseX + 2;
-                minZ = baseZ + 1; maxZ = baseZ + 5;
-                break;
-            case 1: // Facing negative Z
-                minX = baseX - 2; maxX = baseX + 2;
-                minZ = baseZ - 5; maxZ = baseZ - 1;
-                break;
-            case 2: // Facing positive X
-                minX = baseX + 1; maxX = baseX + 5;
-                minZ = baseZ - 2; maxZ = baseZ + 2;
-                break;
-            case 3: // Facing negative X
-                minX = baseX - 5; maxX = baseX - 1;
-                minZ = baseZ - 2; maxZ = baseZ + 2;
-                break;
-            default:
-                minX = baseX - 2; maxX = baseX + 2;
-                minZ = baseZ + 1; maxZ = baseZ + 5;
-                break;
-        }
-        
-        
-        int cropsFound = 0;
         int cropsAdvanced = 0;
-        
-        // Apply growth to blocks in the affected area.
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                Vector3i targetPos = new Vector3i(x, baseY, z);
-
-                try {
-                    WorldChunk chunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(x, z));
-                    if (chunk != null) {
-                        BlockType blockType = chunk.getBlockType(targetPos);
-                        if (blockType != null && blockType.getFarming() != null) {
-                            // Tree-only fertilizers skip non-sapling blocks.
-                            if (treeOnly) {
-                                String bid = blockType.getId();
-                                boolean isSapling = bid.startsWith("Plant_Sapling_") || bid.contains("_Sapling");
-                                if (!isSapling) continue;
-                            }
-                            cropsFound++;
-                            
-                            // Get the FarmingBlock component and advance its growth
-                            Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
-                            Ref<ChunkStore> chunkRef = w.getChunkStore().getChunkReference(ChunkUtil.indexChunkFromBlock(x, z));
-                            if (chunkRef != null) {
-                                BlockComponentChunk blockComponentChunk = (BlockComponentChunk)chunkStore.getComponent(chunkRef, BlockComponentChunk.getComponentType());
-                                if (blockComponentChunk != null) {
-                                    int blockIndexColumn = ChunkUtil.indexBlockInColumn(x, baseY, z);
-                                    Ref<ChunkStore> blockRef = blockComponentChunk.getEntityReference(blockIndexColumn);
-                                    if (blockRef != null) {
-                                        FarmingBlock farmingBlock = (FarmingBlock)chunkStore.getComponent(blockRef, FarmingBlock.getComponentType());
-                                        if (farmingBlock != null) {
-                                            // Get the current stage and advance it
-                                            float currentProgress = farmingBlock.getGrowthProgress();
-                                            int currentStage = (int)currentProgress;
-                                            
-                                            // Get the stages to know the maximum
-                                            FarmingData farmingConfig = blockType.getFarming();
-                                            if (farmingConfig.getStages() != null) {
-                                                String currentStageSet = farmingBlock.getCurrentStageSet();
-                                                if (currentStageSet == null) {
-                                                    currentStageSet = farmingConfig.getStartingStageSet();
-                                                }
-                                                
-                                                FarmingStageData[] stages = (FarmingStageData[])farmingConfig.getStages().get(currentStageSet);
-                                                if (stages != null && stages.length > 0) {
-                                                    // Advance to next stage, but don't exceed the maximum
-                                                    int nextStage = Math.min(currentStage + 1, stages.length - 1);
-                                                    if (nextStage > currentStage) {
-                                                        // Update the FarmingBlock component
-                                                        farmingBlock.setGrowthProgress((float)nextStage);
-                                                        farmingBlock.setGeneration(farmingBlock.getGeneration() + 1);
-                                                        
-                                                        // Get the previous stage data for the apply method
-                                                        FarmingStageData previousStage = null;
-                                                        if (currentStage >= 0 && currentStage < stages.length) {
-                                                            previousStage = stages[currentStage];
-                                                        }
-                                                        
-                                                        // Apply the stage change to the block
-                                                        Ref<ChunkStore> sectionRef = w.getChunkStore().getChunkSectionReference(ChunkUtil.chunkCoordinate(x), ChunkUtil.chunkCoordinate(baseY), ChunkUtil.chunkCoordinate(z));
-                                                        if (sectionRef != null) {
-                                                            stages[nextStage].apply(chunkStore, sectionRef, blockRef, x, baseY, z, previousStage);
-                                                            cropsAdvanced++;
-                                                        } 
-                                                    } 
-                                                } 
-                                            } 
-                                        } 
-                                    } 
-                                } 
-                            } 
-                        } 
-                    } 
-                } catch (Exception e) {
-                    HytaleLogger.getLogger().atWarning().log(
-                        "[Fertilizer %d,%d,%d] growth tick failed at (%d,%d): %s",
-                        getBlockX(), getBlockY(), getBlockZ(), x, z, e.getMessage());
+        // Always attempt all 25 slots every pass; failures in one slot never stop others.
+        for (int lateral = -2; lateral <= 2; lateral++) {
+            for (int forward = 1; forward <= 5; forward++) {
+                int x = baseX;
+                int z = baseZ;
+                switch (rotation) {
+                    case 0 -> {
+                        x = baseX + lateral;
+                        z = baseZ + forward;
+                    }
+                    case 1 -> {
+                        x = baseX + lateral;
+                        z = baseZ - forward;
+                    }
+                    case 2 -> {
+                        x = baseX + forward;
+                        z = baseZ + lateral;
+                    }
+                    case 3 -> {
+                        x = baseX - forward;
+                        z = baseZ + lateral;
+                    }
                 }
+
+                // Be tolerant to slight Y drift between machines/chunk updates.
+                cropsAdvanced += tryApplyGrowthAt(w, x, baseY, z, treeOnly);
+                cropsAdvanced += tryApplyGrowthAt(w, x, baseY + 1, z, treeOnly);
+                cropsAdvanced += tryApplyGrowthAt(w, x, baseY - 1, z, treeOnly);
             }
         }
         
         
         return cropsAdvanced;
+    }
+
+    private int tryApplyGrowthAt(World w, int x, int y, int z, boolean treeOnly) {
+        try {
+            WorldChunk chunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(x, z));
+            if (chunk == null) return 0;
+
+            Vector3i targetPos = new Vector3i(x, y, z);
+            BlockType blockType = chunk.getBlockType(targetPos);
+            if (blockType == null) return 0;
+
+            String bid = blockType.getId();
+            boolean isSapling = bid.startsWith("Plant_Sapling_") || bid.contains("_Sapling");
+
+            // Tree-only fertilizers skip non-saplings.
+            if (treeOnly && !isSapling) return 0;
+
+            // Saplings without farming data: re-arm natural ticking.
+            if (blockType.getFarming() == null) {
+                if (isSapling) {
+                    rearmSaplingTick(chunk, x, y, z);
+                    return 1;
+                }
+                return 0;
+            }
+
+            Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
+            Ref<ChunkStore> chunkRef = w.getChunkStore().getChunkReference(ChunkUtil.indexChunkFromBlock(x, z));
+            if (chunkRef == null) {
+                if (isSapling) {
+                    rearmSaplingTick(chunk, x, y, z);
+                    return 1;
+                }
+                return 0;
+            }
+
+            BlockComponentChunk blockComponentChunk = (BlockComponentChunk) chunkStore.getComponent(
+                    chunkRef, BlockComponentChunk.getComponentType());
+            if (blockComponentChunk == null) {
+                if (isSapling) {
+                    rearmSaplingTick(chunk, x, y, z);
+                    return 1;
+                }
+                return 0;
+            }
+
+            int blockIndexColumn = ChunkUtil.indexBlockInColumn(x, y, z);
+            Ref<ChunkStore> blockRef = blockComponentChunk.getEntityReference(blockIndexColumn);
+            if (blockRef == null) {
+                if (isSapling) {
+                    rearmSaplingTick(chunk, x, y, z);
+                    return 1;
+                }
+                return 0;
+            }
+
+            FarmingBlock farmingBlock = (FarmingBlock) chunkStore.getComponent(blockRef, FarmingBlock.getComponentType());
+            if (farmingBlock == null) {
+                if (isSapling) {
+                    rearmSaplingTick(chunk, x, y, z);
+                    return 1;
+                }
+                return 0;
+            }
+
+            float currentProgress = farmingBlock.getGrowthProgress();
+            int currentStage = (int) currentProgress;
+
+            FarmingData farmingConfig = blockType.getFarming();
+            if (farmingConfig.getStages() == null) return 0;
+
+            String currentStageSet = farmingBlock.getCurrentStageSet();
+            if (currentStageSet == null) {
+                currentStageSet = farmingConfig.getStartingStageSet();
+            }
+
+            FarmingStageData[] stages = (FarmingStageData[]) farmingConfig.getStages().get(currentStageSet);
+            if (stages == null || stages.length == 0) return 0;
+
+            // Saplings should mature fully in one fertilizer pass, but we do it stage-by-stage
+            // so each transition can fail safely without invalidating the block state.
+            int targetStage = isSapling
+                    ? (stages.length - 1)
+                    : Math.min(currentStage + 1, stages.length - 1);
+            if (targetStage <= currentStage) {
+                if (isSapling) {
+                    rearmSaplingTick(chunk, x, y, z);
+                }
+                return 0;
+            }
+
+            Ref<ChunkStore> sectionRef = w.getChunkStore().getChunkSectionReference(
+                    ChunkUtil.chunkCoordinate(x), ChunkUtil.chunkCoordinate(y), ChunkUtil.chunkCoordinate(z));
+            if (sectionRef == null) return 0;
+
+            float lastStableProgress = farmingBlock.getGrowthProgress();
+            int lastStableGeneration = farmingBlock.getGeneration();
+            boolean advancedAny = false;
+
+            for (int stageToApply = currentStage + 1; stageToApply <= targetStage; stageToApply++) {
+                FarmingStageData previousStage = null;
+                int previousStageIndex = stageToApply - 1;
+                if (previousStageIndex >= 0 && previousStageIndex < stages.length) {
+                    previousStage = stages[previousStageIndex];
+                }
+
+                try {
+                    farmingBlock.setGrowthProgress((float) stageToApply);
+                    farmingBlock.setGeneration(lastStableGeneration + 1);
+                    stages[stageToApply].apply(chunkStore, sectionRef, blockRef, x, y, z, previousStage);
+                    lastStableProgress = farmingBlock.getGrowthProgress();
+                    lastStableGeneration = farmingBlock.getGeneration();
+                    advancedAny = true;
+                } catch (Exception applyEx) {
+                    // Roll back to the last successfully applied stage.
+                    farmingBlock.setGrowthProgress(lastStableProgress);
+                    farmingBlock.setGeneration(lastStableGeneration);
+                    throw applyEx;
+                }
+            }
+
+            if (isSapling) {
+                rearmSaplingTick(chunk, x, y, z);
+            }
+            return advancedAny ? 1 : 0;
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atWarning().log(
+                "[Fertilizer %d,%d,%d] growth tick failed at (%d,%d,%d): %s",
+                getBlockX(), getBlockY(), getBlockZ(), x, y, z, e.getMessage());
+            return 0;
+        }
+    }
+
+    private void rearmSaplingTick(WorldChunk chunk, int x, int y, int z) {
+        try {
+            chunk.setTicking(x, y, z, true);
+        } catch (Exception e) {
+            HytaleLogger.getLogger().atFine().log(
+                "[Fertilizer %d,%d,%d] setTicking failed at (%d,%d,%d): %s",
+                getBlockX(), getBlockY(), getBlockZ(), x, y, z, e.getMessage());
+        }
     }
 
     private void consumeResources() {

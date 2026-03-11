@@ -18,6 +18,7 @@ import com.hypixel.hytale.server.core.inventory.container.SimpleItemContainer;
 import com.hypixel.hytale.server.core.modules.entity.EntityModule;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
+import com.hypixel.hytale.server.core.universe.world.chunk.WorldChunk;
 import com.hypixel.hytale.server.core.universe.world.chunk.state.TickableBlockState;
 import com.hypixel.hytale.server.core.universe.world.meta.BlockState;
 import com.hypixel.hytale.server.core.universe.world.meta.state.ItemContainerBlockState;
@@ -37,6 +38,8 @@ import java.util.Objects;
 
 @SuppressWarnings("removal")
 public class BlockPlacer extends ItemContainerState implements TickableBlockState, ItemContainerBlockState {
+    private static final String LOCK_OWNER = "BlockPlacer";
+    private static final long PLACE_LOCK_TTL_MS = 2500L;
 
     public World w;
     private int square;
@@ -136,6 +139,15 @@ public class BlockPlacer extends ItemContainerState implements TickableBlockStat
                     continue;
 
                 }
+
+                // If cutter is actively working this position, skip this tick.
+                if (MachineActionLock.reservedByOther(LOCK_OWNER, x, y, z)) {
+                    continue;
+                }
+                if (!MachineActionLock.reserve(LOCK_OWNER, x, y, z, PLACE_LOCK_TTL_MS)) {
+                    continue;
+                }
+
                 // Get this block's entity reference for animation using spatial resource
                 Ref<EntityStore> blockEntityRef = null;
                 Store<EntityStore> entityStore = w.getEntityStore().getStore();
@@ -149,13 +161,19 @@ public class BlockPlacer extends ItemContainerState implements TickableBlockStat
                 this.ref = blockEntityRef;
 
                 if(stack.getItemId().contains("Sapling")){
-                    w.setBlock(
-                            x,
-                            y,
-                            z,
-                            stack.getBlockKey(),
-                            3332
-                    );
+                    // Ensure there is a solid block to plant on; if not, place Soil_Grass first.
+                    var below = w.getBlockType(x, y - 1, z);
+                    WorldChunk saplingChunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(x, z));
+                    if (below == null || below.getId().equals("Empty") || below.getId().equals("Air")) {
+                        if (saplingChunk != null) {
+                            saplingChunk.setBlock(x, y - 1, z, "Soil_Grass", 3332);
+                        }
+                    }
+                    // Use chunk.placeBlock so the engine initialises farming/ticking the same
+                    // way a player-placed sapling would be registered.
+                    w.setBlock(x, y, z, stack.getBlockKey(),3332);
+                    //w.setTicking(x, y, z, true);
+                    //w.markNeedsSaving();
                     this.getItemContainer().removeItemStackFromSlot((short) 0, 1);
                     remaining--;
                     // Play animation when sapling is placed

@@ -59,6 +59,8 @@ import java.util.Objects;
 
 @SuppressWarnings("removal")
 public class WoodCutter extends ItemContainerState implements TickableBlockState, ItemContainerBlockState {
+    private static final String LOCK_OWNER = "WoodCutter";
+    private static final long CUT_LOCK_TTL_MS = 2500L;
     public World w;
     private int square;
     public Store<EntityStore> entities;
@@ -176,6 +178,11 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                     BlockType block = w.getBlockType(x, y, z);
                     if (block == null) continue;
 
+                    // Failsafe: skip cells currently reserved by the placer.
+                    if (MachineActionLock.reservedByOther(LOCK_OWNER, x, y, z)) {
+                        continue;
+                    }
+
                     // If already a sapling, just queue it for growth
                     if (block.getId().startsWith("Plant_Sapling_")) {
                         saplingsToGrow.add(new Vector3i(x, y, z));
@@ -248,6 +255,9 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         }
 
                         if (isFullyGrown) {
+                            if (!MachineActionLock.reserve(LOCK_OWNER, x, y, z, CUT_LOCK_TTL_MS)) {
+                                continue;
+                            }
                             WorldChunk cropChunk = w.getChunkIfInMemory(
                                     ChunkUtil.indexChunkFromBlock(x, z));
                             if (cropChunk != null) {
@@ -268,17 +278,51 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         continue; // Crop handled – skip hardwood checks, move to next block
                     }
 
-                    Item item = block.getItem();
-                    if (item == null || item.getResourceTypes() == null) continue;
+                    // Branches are harvested identically to trunks.
+                    if (block.getId().contains("Branch")) {
+                        if (!MachineActionLock.reserve(LOCK_OWNER, x, y, z, CUT_LOCK_TTL_MS)) {
+                            continue;
+                        }
+                        WorldChunk branchChunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(x, z));
+                        if (branchChunk != null) {
+                            HytaleLogger.getLogger().atInfo().log(
+                                "[WoodCutter %d,%d,%d] Cutting branch %s at (%d,%d,%d)",
+                                getBlockX(), getBlockY(), getBlockZ(), block.getId(), x, y, z);
+                            branchChunk.breakBlock(x, y, z, 3332);
+                            branchChunk.breakBlock(x, y + 1, z, 3332);
+                            branchChunk.breakBlock(x, y - 1, z, 3332);
+                            didWork = true;
+                            //branchChunk.markNeedsSaving();
+                            branchChunk.setBlock(x, y - 1, z, "Soil_Grass");
+                            branchChunk.setBlock(x, y - 2, z, "Soil_Grass");
+                        }
+                        continue;
+                    }
 
+                    Item item = block.getItem();
+
+                    // Primary check: resource types on the item
                     boolean isWood = false;
-                    for (var rt : item.getResourceTypes()) {
-                        if (rt.id != null && rt.id.startsWith("Wood_")) {
+                    if (item != null && item.getResourceTypes() != null) {
+                        for (var rt : item.getResourceTypes()) {
+                            if (rt.id != null && rt.id.startsWith("Wood_")) {
+                                isWood = true;
+                                break;
+                            }
+                        }
+                    }
+                    // Fallback: check block ID directly (covers missing item/resource-type data)
+                    if (!isWood) {
+                        String blockId = block.getId();
+                        if (blockId.contains("Wood_") || blockId.contains("_Trunk") || blockId.contains("Branch")) {
                             isWood = true;
-                            break;
                         }
                     }
                     if (!isWood) continue;
+
+                    if (!MachineActionLock.reserve(LOCK_OWNER, x, y, z, CUT_LOCK_TTL_MS)) {
+                        continue;
+                    }
 
                     WorldChunk chunk = w.getChunkIfInMemory(
                             ChunkUtil.indexChunkFromBlock(x, z)
@@ -290,8 +334,9 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                         getBlockX(), getBlockY(), getBlockZ(),
                         block.getId(), x, y, z);
 
-                    // Normalize the species name
-                    String sapling = item.getBlockId()
+                    // Normalize the species name — prefer item.getBlockId(), fall back to block ID
+                    String sourceId = (item != null && item.getBlockId() != null) ? item.getBlockId() : block.getId();
+                    String sapling = sourceId
                             .replaceFirst("^Wood_", "")
                             .replaceAll("_(Trunk|Full|Large|Mature|Stump)$", "");
                     sapling = sapling.replace("_Trunk", "");
@@ -303,20 +348,79 @@ public class WoodCutter extends ItemContainerState implements TickableBlockState
                     chunk.breakBlock(x, y - 2, z, 3332);
                     didWork = true;
 
-                    // Prepare soil
-                    chunk.setBlock(x, y - 1, z, "Soil_Grass");
-                    chunk.setBlock(x, y - 2, z, "Soil_Grass");
+                    // Restore ground blocks to Soil_Grass (trees can grow roots down)
+                    chunk.setBlock(x, y - 1, z, "Soil_Grass",3332);
+                    chunk.setBlock(x, y - 2, z, "Soil_Grass",3332);
 
                     // Plant sapling
                     //chunk.placeBlock(x, y, z, "Plant_Sapling_" + sapling, RotationTuple.NONE, 3332, true);
 
-                    chunk.setTicking(x, y, z, true);
+                    //chunk.setTicking(x, y, z, true);
 
                     saplingsToGrow.add(new Vector3i(x, y, z));
 
 
                     
-                    chunk.markNeedsSaving();
+                    //chunk.markNeedsSaving();
+                }
+            }
+
+    /* ---------------------------------
+       PHASE 2: Cleanup - scan 7-wide × 8-deep area at all heights
+       for stray wood / branch blocks left by overgrown trees.
+       --------------------------------- */
+            for (int dx = -3; dx <= 3; dx++) {
+                for (int dz = -1; dz <= 6; dz++) {
+                    int cx = baseX + dx;
+                    int cz = baseZ + dz;
+                    if (this.getRotationIndex() == 1) { cz = baseZ - dz; }
+                    if (this.getRotationIndex() == 2) { cx = baseX + dz; cz = baseZ + dx; }
+                    if (this.getRotationIndex() == 3) { cx = baseX - dz; cz = baseZ + dx; }
+
+                    WorldChunk cleanChunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(cx, cz));
+                    if (cleanChunk == null) continue;
+
+                    for (int cy = baseY - 2; cy <= baseY + 25; cy++) {
+                        BlockType cleanBlock = w.getBlockType(cx, cy, cz);
+                        if (cleanBlock == null) continue;
+
+                        String cleanId = cleanBlock.getId();
+                        // Skip saplings: do not remove blocks that are saplings
+                        if (cleanId.startsWith("Plant_Sapling_")) continue;
+
+                        boolean isStrayWood = cleanId.contains("Branch")
+                                || cleanId.contains("_Trunk")
+                                || cleanId.contains("Wood_")
+                                || cleanId.contains("_Log");
+                        if (!isStrayWood) {
+                            Item cleanItem = cleanBlock.getItem();
+                            if (cleanItem != null && cleanItem.getResourceTypes() != null) {
+                                for (var rt : cleanItem.getResourceTypes()) {
+                                    if (rt.id != null && rt.id.startsWith("Wood_")) {
+                                        isStrayWood = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (isStrayWood) {
+                            if (MachineActionLock.reservedByOther(LOCK_OWNER, cx, cy, cz)) {
+                                continue;
+                            }
+                            if (!MachineActionLock.reserve(LOCK_OWNER, cx, cy, cz, CUT_LOCK_TTL_MS)) {
+                                continue;
+                            }
+                            cleanChunk.breakBlock(cx, cy, cz, 3332);
+                            // Only restore soil when clearing at or below machine level
+                            if (cy <= baseY) {
+                                cleanChunk.setBlock(cx, cy - 1, cz, "Soil_Grass", 3332);
+                                cleanChunk.setBlock(cx, cy - 2, cz, "Soil_Grass", 3332);
+                            }
+                            didWork = true;
+                            //cleanChunk.markNeedsSaving();
+                        }
+                    }
                 }
             }
 

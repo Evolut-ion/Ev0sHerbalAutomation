@@ -471,6 +471,7 @@ public final class FertilizerUIPage {
             case NOCUBE_SEASHELL -> "NoCube Seashell Fertilizer  (7.5s)";
             case NOCUBE_ELITE   -> "NoCube Elite Fertilizer  (~3.8s)";
             case NONE           -> "None";
+            default -> throw new IllegalArgumentException("Unexpected value: " + type);
         };
     }
 
