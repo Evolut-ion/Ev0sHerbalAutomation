@@ -470,6 +470,9 @@ public final class FertilizerUIPage {
             case NOCUBE_BONE    -> "NoCube Bone Fertilizer  (15s)";
             case NOCUBE_SEASHELL -> "NoCube Seashell Fertilizer  (7.5s)";
             case NOCUBE_ELITE   -> "NoCube Elite Fertilizer  (~3.8s)";
+            case TOOL_COMPOST        -> "Compost  (60s)";
+            case TOOL_SUPER_COMPOST  -> "Super Compost  (30s)";
+            case TOOL_ULTRA_COMPOST -> "Super Compost (matching)  (30s)";
             case NONE           -> "None";
             default -> throw new IllegalArgumentException("Unexpected value: " + type);
         };

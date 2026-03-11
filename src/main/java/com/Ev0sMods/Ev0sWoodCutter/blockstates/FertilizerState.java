@@ -78,7 +78,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         // Custom fertilizers matching NoCube speeds
         TOOL_COMPOST        (900,  false, false),  // Tool_Compost, matches Nocube Lime
         TOOL_SUPER_COMPOST  (450,  false, false),  // Tool_Super_Compost, matches Nocube Bone
-        TOOL_SUPER_COMPOST_MATCHING (450, false, false), // Tool_Super_Compost_Matching, matches Nocube Bone
+        TOOL_ULTRA_COMPOST  (450,  false, false),  // Tool_Ultra_Compost, matches Nocube Bone
         // NoCube's Orchard — all require liquid in slot 1
         NOCUBE_TREE         (900,  true,  false),  // NoCube_Ingredient_Tree_Fertilizer (trees only)
         // NoCube's Cultivation — all require liquid in slot 1
@@ -256,7 +256,12 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
 
     /** Returns true if the given item ID represents any fertilizer (our own or NoCube). */
     static boolean isFertilizer(String itemId) {
-        return itemId != null && itemId.toLowerCase().contains("fertil");
+        if (itemId == null) return false;
+        String id = itemId.toLowerCase();
+        return id.contains("fertil")
+            || itemId.equals("Tool_Compost")
+            || itemId.equals("Tool_Super_Compost")
+            || itemId.equals("Tool_Ultra_Compost");
     }
 
     /** Returns true if the given item ID is specifically fertilizer water (liquid slot only). */
@@ -299,8 +304,8 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 activeFertilizerType = hasLiquid ? FertilizerType.TOOL_COMPOST : FertilizerType.NONE;
             } else if (fid.equals("Tool_Super_Compost")) {
                 activeFertilizerType = hasLiquid ? FertilizerType.TOOL_SUPER_COMPOST : FertilizerType.NONE;
-            } else if (fid.equals("Tool_Super_Compost_Matching")) {
-                activeFertilizerType = hasLiquid ? FertilizerType.TOOL_SUPER_COMPOST_MATCHING : FertilizerType.NONE;
+            } else if (fid.equals("Tool_Ultra_Compost")) {
+                activeFertilizerType = hasLiquid ? FertilizerType.TOOL_ULTRA_COMPOST : FertilizerType.NONE;
             } else if (fid.equals("NoCube_Ingredient_Tree_Fertilizer")) {
                 activeFertilizerType = hasLiquid ? FertilizerType.NOCUBE_TREE : FertilizerType.NONE;
             } else if (fid.equals("NoCube_Tool_Fertilizer_Lime")) {
