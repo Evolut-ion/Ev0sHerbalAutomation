@@ -13,7 +13,17 @@
     "ParticleColor": "#d4ece7",
     "State": {
       "Id": "BlockPlacer",
-      "Size": 5
+      "Size": 5,
+      "Definitions": {
+        "Off": {
+          "CustomModelAnimation": null,
+          "Looping": false
+        },
+        "On": {
+          "CustomModelAnimation": null,
+          "Looping": false
+        }
+      }
     },
     "DrawType": "Model",
     "CustomModelTexture": [

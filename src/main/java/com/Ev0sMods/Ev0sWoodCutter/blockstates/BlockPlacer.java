@@ -72,15 +72,20 @@ public class BlockPlacer extends ItemContainerState implements TickableBlockStat
             Store<ChunkStore> store,
             CommandBuffer<ChunkStore> commandBuffer
     ) {
-        if (++timer < 150) return;
-        timer = 0;
-
         World w = store.getExternalData().getWorld();
         if (w == null) return;
 
-        // If ArcIO is installed, register as a mechanism and check signal.
+        // Always ensure ArcIO components are attached on the very first tick after
+        // placement/load, so ArcIO can connect before the work timer fires.
         if (ARCIO_PRESENT) {
             ensureArcioComponents(w);
+        }
+
+        if (++timer < 150) return;
+        timer = 0;
+
+        // Gate planting on ArcIO signal now that components are guaranteed to exist.
+        if (ARCIO_PRESENT) {
             boolean active = isArcioActive(w);
             if (active != lastArcioActive) {
                 lastArcioActive = active;

@@ -58,6 +58,7 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 import javax.annotation.Nonnull;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 
@@ -114,6 +115,8 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
     private boolean lastArcioActive = false;
     /** Whether we have already ensured our ArcIO components exist on this block entity. */
     private boolean arcioInitialized = false;
+    /** Cached ArcIO mechanism component — set once in ensureArcioComponents to avoid chunk-store lookups every tick. */
+    private ArcioMechanismComponent cachedArcioMech = null;
     /** Whether the On animation is currently active. */
     private boolean isAnimating = false;
     /** Countdown ticks holding the On state so the animation can play to completion. */
@@ -148,8 +151,30 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
     FertilizerType activeFertilizerType = FertilizerType.NONE;
     /** Effective tick interval — halved when fertilizer water is present in slot 1. */
     public int effectiveTickInterval = 0;
-    /** Counter driving the UI auto-refresh every ~15 ticks. */
+    /** Snapshot of slot 0 item ID from the last checkInputItems call — used to detect real inventory changes. */
+    private String lastSlot0Id = null;
+    /** Snapshot of slot 0 quantity from the last checkInputItems call. */
+    private int lastSlot0Qty = 0;
+    /** Snapshot of slot 1 item ID from the last checkInputItems call. */
+    private String lastSlot1Id = null;
+    /** Snapshot of slot 1 quantity from the last checkInputItems call. */
+    private int lastSlot1Qty = 0;
+    /** Counter driving the UI auto-refresh every ~30 ticks while processing. */
     private int uiTick = 0;
+    /** Dedicated periodic UI timer to force updates every 3 seconds (90 ticks). */
+    private int periodicUiTimer = 0;
+    /** Dedicated counter for throttling checkInputItems — always increments regardless of processing state. */
+    private int inputCheckTimer = 0;
+    /**
+     * Set to true whenever displayed state changes (inputs, processing start/stop, resources consumed).
+     * Causes an immediate UI push on the next tick rather than waiting for the timed interval.
+     * Cleared after each push so idle machines never call renderPage.
+     */
+    boolean uiDirty = false;
+    /** Cached block position — avoids three getBlockPosition() calls per tick in the UI path. */
+    private Vector3i cachedBlockPos = null;
+    /** Last progress % sent to the UI — used to only push when crossing a 10% boundary. */
+    private int lastUiProgress = -1;
 
     @Override
     public void tick(
@@ -190,7 +215,11 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         }
 
         // Check inventory every 20 ticks to reduce overhead.
-        if (processingTimer % 20 == 0) {
+        // Uses a dedicated counter so the check is throttled even when isProcessing=false
+        // (processingTimer stays 0 when idle, making % 20 always true — which was a bug).
+        inputCheckTimer++;
+        if (inputCheckTimer >= 20) {
+            inputCheckTimer = 0;
             checkInputItems(w);
             fixSlotAssignments(w);
         }
@@ -230,12 +259,35 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             setAnimState(w, false);
         }
 
-        // UI auto-refresh every ~15 ticks (~500 ms at 30 TPS).
-        if (HYUI_PRESENT) {
-            uiTick++;
-            if (uiTick >= 15) {
+        // UI auto-refresh:
+        //   • Immediate full rebuild when uiDirty (state changed this tick — items, processing state).
+        //   • While processing, push only when progress crosses a 20% bucket boundary;
+        //     if only progress/status changed, a cheap incremental updatePage() is used instead
+        //     of a full HTML rebuild + PageBuilder.open() (see FertilizerUIPage.partialRefresh).
+        //   • Idle machines with no state changes: zero calls to renderPage.
+        if (HYUI_PRESENT && FertilizerUIPage.hasWatcher(cachedBlockPos)) {
+            if (uiDirty) {
+                uiDirty = false;
                 uiTick = 0;
-                FertilizerUIPage.tickRefresh(this, w.getEntityStore().getStore(), getBlockPosition());
+                lastUiProgress = -1;
+                FertilizerUIPage.tickRefresh(this, w.getEntityStore().getStore(), cachedBlockPos, true);
+            } else if (isProcessing && effectiveTickInterval > 0) {
+                int pct = (int)(100.0 * processingTimer / effectiveTickInterval);
+                int bucket = pct / 20;
+                int lastBucket = lastUiProgress / 20;
+                if (lastUiProgress < 0 || bucket != lastBucket) {
+                    lastUiProgress = pct;
+                    FertilizerUIPage.tickRefresh(this, w.getEntityStore().getStore(), cachedBlockPos, false);
+                }
+            } else {
+                uiTick = 0;
+                lastUiProgress = -1;
+            }
+            // Periodic update every 3 seconds (90 ticks at 30 TPS) for watching UIs.
+            periodicUiTimer++;
+            if (periodicUiTimer >= 90) {
+                periodicUiTimer = 0;
+                FertilizerUIPage.periodicRefresh(this, w.getEntityStore().getStore(), cachedBlockPos);
             }
         }
     }
@@ -246,7 +298,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         try {
             PlayerRef playerRef = store.getComponent(playerEntityRef, PlayerRef.getComponentType());
             if (playerRef == null) return;
-            FertilizerUIPage.open(playerRef, playerEntityRef, store, getBlockPosition());
+            FertilizerUIPage.open(playerRef, playerEntityRef, store, getBlockPosition(), this);
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] Failed to open UI: %s",
@@ -283,6 +335,16 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
 
         ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short) 0);
         ItemStack waterSlot      = this.getItemContainer().getItemStack((short) 1);
+
+        // Snapshot current slot contents to detect real inventory changes.
+        String cur0Id  = fertilizerSlot != null ? fertilizerSlot.getItemId() : null;
+        int    cur0Qty = fertilizerSlot != null ? fertilizerSlot.getQuantity() : 0;
+        String cur1Id  = waterSlot != null ? waterSlot.getItemId() : null;
+        int    cur1Qty = waterSlot != null ? waterSlot.getQuantity() : 0;
+        boolean slotsChanged = !Objects.equals(cur0Id, lastSlot0Id) || cur0Qty != lastSlot0Qty
+                            || !Objects.equals(cur1Id, lastSlot1Id) || cur1Qty != lastSlot1Qty;
+        lastSlot0Id = cur0Id; lastSlot0Qty = cur0Qty;
+        lastSlot1Id = cur1Id; lastSlot1Qty = cur1Qty;
 
         hasFertilizer = fertilizerSlot != null && isFertilizer(fertilizerSlot.getItemId());
         hasWater = waterSlot != null && (
@@ -340,6 +402,8 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } else {
             isProcessing = false;
         }
+        // Only push a UI update when something the player can see actually changed.
+        if (slotsChanged) uiDirty = true;
     }
 
     private int applyGrowthTick(World w, boolean treeOnly) {
@@ -348,7 +412,16 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         int baseZ = this.getBlockZ();
         int rotation = getRotationIndex();
 
-        
+        // Hoist once: these are stable across the entire growth scan.
+        Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
+
+        // Per-call caches: avoid re-fetching the same chunk/ref/bcc/sectionRef for multiple Y-levels at the same (x,z).
+        HashMap<Long, WorldChunk> chunkCache = new HashMap<>();
+        HashMap<Long, Ref<ChunkStore>> chunkRefCache = new HashMap<>();
+        HashMap<Long, BlockComponentChunk> bccCache = new HashMap<>();
+        // Section refs grouped by packed (sectionX, sectionY, sectionZ) — multiple blocks share a section.
+        HashMap<Long, Ref<ChunkStore>> sectionRefCache = new HashMap<>();
+
         int cropsAdvanced = 0;
         // Always attempt all 25 slots every pass; failures in one slot never stop others.
         for (int lateral = -2; lateral <= 2; lateral++) {
@@ -375,9 +448,9 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 }
 
                 // Be tolerant to slight Y drift between machines/chunk updates.
-                cropsAdvanced += tryApplyGrowthAt(w, x, baseY, z, treeOnly);
-                cropsAdvanced += tryApplyGrowthAt(w, x, baseY + 1, z, treeOnly);
-                cropsAdvanced += tryApplyGrowthAt(w, x, baseY - 1, z, treeOnly);
+                cropsAdvanced += tryApplyGrowthAt(w, x, baseY,     z, treeOnly, chunkStore, chunkCache, chunkRefCache, bccCache, sectionRefCache);
+                cropsAdvanced += tryApplyGrowthAt(w, x, baseY + 1, z, treeOnly, chunkStore, chunkCache, chunkRefCache, bccCache, sectionRefCache);
+                cropsAdvanced += tryApplyGrowthAt(w, x, baseY - 1, z, treeOnly, chunkStore, chunkCache, chunkRefCache, bccCache, sectionRefCache);
             }
         }
         
@@ -385,9 +458,21 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         return cropsAdvanced;
     }
 
-    private int tryApplyGrowthAt(World w, int x, int y, int z, boolean treeOnly) {
+    private int tryApplyGrowthAt(World w, int x, int y, int z, boolean treeOnly,
+            Store<ChunkStore> chunkStore,
+            HashMap<Long, WorldChunk> chunkCache,
+            HashMap<Long, Ref<ChunkStore>> chunkRefCache,
+            HashMap<Long, BlockComponentChunk> bccCache,
+            HashMap<Long, Ref<ChunkStore>> sectionRefCache) {
         try {
-            WorldChunk chunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(x, z));
+            long chunkIdx = ChunkUtil.indexChunkFromBlock(x, z);
+            WorldChunk chunk;
+            if (!chunkCache.containsKey(chunkIdx)) {
+                chunk = w.getChunkIfInMemory(chunkIdx);
+                chunkCache.put(chunkIdx, chunk);
+            } else {
+                chunk = chunkCache.get(chunkIdx);
+            }
             if (chunk == null) return 0;
 
             Vector3i targetPos = new Vector3i(x, y, z);
@@ -409,8 +494,13 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 return 0;
             }
 
-            Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
-            Ref<ChunkStore> chunkRef = w.getChunkStore().getChunkReference(ChunkUtil.indexChunkFromBlock(x, z));
+            Ref<ChunkStore> chunkRef;
+            if (!chunkRefCache.containsKey(chunkIdx)) {
+                chunkRef = w.getChunkStore().getChunkReference(chunkIdx);
+                chunkRefCache.put(chunkIdx, chunkRef);
+            } else {
+                chunkRef = chunkRefCache.get(chunkIdx);
+            }
             if (chunkRef == null) {
                 if (isSapling) {
                     rearmSaplingTick(chunk, x, y, z);
@@ -419,8 +509,14 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 return 0;
             }
 
-            BlockComponentChunk blockComponentChunk = (BlockComponentChunk) chunkStore.getComponent(
-                    chunkRef, BlockComponentChunk.getComponentType());
+            BlockComponentChunk blockComponentChunk;
+            if (!bccCache.containsKey(chunkIdx)) {
+                blockComponentChunk = (BlockComponentChunk) chunkStore.getComponent(
+                        chunkRef, BlockComponentChunk.getComponentType());
+                bccCache.put(chunkIdx, blockComponentChunk);
+            } else {
+                blockComponentChunk = bccCache.get(chunkIdx);
+            }
             if (blockComponentChunk == null) {
                 if (isSapling) {
                     rearmSaplingTick(chunk, x, y, z);
@@ -474,8 +570,18 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 return 0;
             }
 
-            Ref<ChunkStore> sectionRef = w.getChunkStore().getChunkSectionReference(
-                    ChunkUtil.chunkCoordinate(x), ChunkUtil.chunkCoordinate(y), ChunkUtil.chunkCoordinate(z));
+            int sx = ChunkUtil.chunkCoordinate(x);
+            int sy = ChunkUtil.chunkCoordinate(y);
+            int sz = ChunkUtil.chunkCoordinate(z);
+            // Pack (sx, sy, sz) into a long — sy fits in 16 bits (±32768 sections), sx/sz in 24 bits each.
+            long sectionKey = ((long)(sx & 0xFFFFFF) << 40) | ((long)(sy & 0xFFFF) << 24) | (sz & 0xFFFFFF);
+            Ref<ChunkStore> sectionRef;
+            if (!sectionRefCache.containsKey(sectionKey)) {
+                sectionRef = w.getChunkStore().getChunkSectionReference(sx, sy, sz);
+                sectionRefCache.put(sectionKey, sectionRef);
+            } else {
+                sectionRef = sectionRefCache.get(sectionKey);
+            }
             if (sectionRef == null) return 0;
 
             float lastStableProgress = farmingBlock.getGrowthProgress();
@@ -528,6 +634,8 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
 
     private void consumeResources() {
         if (this.getItemContainer() == null) return;
+        // Note: slot quantity changes are reflected in the UI via the next checkInputItems
+        // isProcessing transition — no need to mark dirty here on every cycle.
 
         // Consume one fertilizer from slot 0 (any item containing 'fertil').
         ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short) 0);
@@ -558,6 +666,8 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         hasFertilizerWater = false;
         hasConsumedResources = false;
         activeFertilizerType = FertilizerType.NONE;
+        // uiDirty intentionally NOT set here — checkInputItems will detect the state
+        // change on the next 20-tick check and mark dirty at that point if needed.
     }
 
     private void setAnimState(World w, boolean on) {
@@ -625,6 +735,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
     public boolean initialize(BlockType blockType) {
         if (super.initialize(blockType) && blockType.getState() instanceof Data data) {
             this.data = data;
+            cachedBlockPos = new Vector3i(getBlockX(), getBlockY(), getBlockZ());
             // Initialize item container for the processing bench
             ic = new SimpleItemContainer((short)2); // 2 slots: fertilizer and water/fertilizer water
             
@@ -740,6 +851,8 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                     bx, by, bz);
             }
 
+            // Cache the resolved mechanism so isArcioActive can skip the lookup chain every tick.
+            cachedArcioMech = mech;
             arcioInitialized = true;
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
@@ -754,6 +867,19 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
      * then falls back to checking adjacent mechanisms for backwards compatibility.
      */
     private boolean isArcioActive(World world) {
+        // Fast path: mechanism component was cached during init — no chunk-store lookups needed.
+        if (cachedArcioMech != null) {
+            try {
+                int signal = cachedArcioMech.getStrongestInputSignal(world);
+                return signal > 0 && signal >= cachedArcioMech.getRequiredSignal();
+            } catch (Exception e) {
+                HytaleLogger.getLogger().atWarning().log(
+                    "[Fertilizer %d,%d,%d] ArcIO cached signal check failed: %s",
+                    getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+                cachedArcioMech = null; // invalidate and fall through
+            }
+        }
+        // Slow path: resolve the mechanism reference chain (runs until arcio is initialised).
         try {
             int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
             Store<ChunkStore> cs = world.getChunkStore().getStore();
@@ -769,6 +895,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                         ArcioMechanismComponent mech = (ArcioMechanismComponent) cs.getComponent(
                                 blockRef, ArcioMechanismComponent.getComponentType());
                         if (mech != null) {
+                            cachedArcioMech = mech; // cache it for subsequent ticks
                             int signal = mech.getStrongestInputSignal(world);
                             int required = mech.getRequiredSignal();
                             if (signal > 0 && signal >= required) return true;

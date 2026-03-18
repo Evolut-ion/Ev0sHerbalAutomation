@@ -1,6 +1,10 @@
 package com.Ev0sMods.Ev0sWoodCutter.blockstates;
 
+import au.ellie.hyui.builders.HyUIPage;
+import au.ellie.hyui.builders.HyUIStyle;
+import au.ellie.hyui.builders.LabelBuilder;
 import au.ellie.hyui.builders.PageBuilder;
+import au.ellie.hyui.builders.PanelBuilder;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.math.util.ChunkUtil;
@@ -18,8 +22,8 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * HyUI page for the Fertilizer block.
@@ -30,13 +34,18 @@ public final class FertilizerUIPage {
 
     private FertilizerUIPage() {}
 
-    /** Per-player UI session: the player's entity ref, entity store, and watched block position. */
-    private record PlayerSession(Ref<EntityStore> entityRef, Store<EntityStore> store, Vector3i blockPos) {}
+    /** Per-player UI session: the player's entity ref, entity store, watched block position, live page, and last render keys. */
+    private record PlayerSession(Ref<EntityStore> entityRef, Store<EntityStore> store, Vector3i blockPos,
+                                  HyUIPage page, int lastStructKey, int lastDynKey) {}
     /** Active UI sessions — players currently viewing a fertilizer block. */
     private static final ConcurrentHashMap<PlayerRef, PlayerSession> SESSIONS = new ConcurrentHashMap<>();
-    /** Monotonically increasing generation per player. Used to tell apart a player-initiated
-     *  dismiss from a programmatic page replacement caused by tick refresh. */
-    private static final ConcurrentHashMap<PlayerRef, AtomicLong> PAGE_GENS = new ConcurrentHashMap<>();
+    /** Per-block watcher count — allows O(1) hasWatcher checks in the tick hot path. */
+    private static final ConcurrentHashMap<Vector3i, Integer> WATCHER_COUNT = new ConcurrentHashMap<>();
+    /** (no suppression) */
+    /** Last System.nanoTime() at which open() was allowed per player — suppresses rapid re-opens. */
+    private static final ConcurrentHashMap<PlayerRef, Long> OPEN_COOLDOWN_NS = new ConcurrentHashMap<>();
+    /** Minimum nanoseconds between player-triggered opens (~667 ms = 20 ticks @ 30 TPS). */
+    private static final long OPEN_COOLDOWN_NANOS = 667_000_000L;
     /** Metadata for a filled player-inventory slot — used to wire up click listeners. */
     private record SlotInfo(String id, ItemContainer container, short slot) {}
 
@@ -45,20 +54,96 @@ public final class FertilizerUIPage {
     // ─────────────────────────────────────────────────────────────────────────
 
     public static void open(PlayerRef playerRef, Ref<EntityStore> entityRef, Store<EntityStore> store, Vector3i pos) {
-        SESSIONS.put(playerRef, new PlayerSession(entityRef, store, pos));
-        PAGE_GENS.computeIfAbsent(playerRef, k -> new AtomicLong());
+        // Suppress rapid repeated opens (e.g. held-right-click spam).
+        long now = System.nanoTime();
+        Long lastOpen = OPEN_COOLDOWN_NS.get(playerRef);
+        if (lastOpen != null && now - lastOpen < OPEN_COOLDOWN_NANOS) return;
+        OPEN_COOLDOWN_NS.put(playerRef, now);
+
+        // Manual opens allowed unconditionally.
+
+        PlayerSession existing = SESSIONS.get(playerRef);
+        if (existing != null && existing.blockPos().equals(pos)) {
+            // Player already has this exact block open — no need to re-render.
+            return;
+        }
+        // If switching from a different block, decrement the old block's watcher count.
+        if (existing != null) {
+            WATCHER_COUNT.merge(existing.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
+        }
+        SESSIONS.put(playerRef, new PlayerSession(entityRef, store, pos, null, 0, 0));
+        WATCHER_COUNT.merge(pos, 1, Integer::sum);
         renderPage(playerRef, entityRef, store, pos, null);
     }
 
     /**
-     * Called from {@link FertilizerState#tick} every ~15 ticks to push updated HTML to watching players.
+     * Force a periodic dynamic update for all watching players without rebuilding the full page.
+     * Respects manual suppression so players who closed the UI won't be auto-updated.
      */
-    static void tickRefresh(FertilizerState fs, Store<EntityStore> entityStore, Vector3i pos) {
+    public static void periodicRefresh(FertilizerState fs, Store<EntityStore> store, Vector3i pos) {
+        int[] keys = computeKeys(fs);
         SESSIONS.forEach((playerRef, session) -> {
-            if (session.blockPos().equals(pos)) {
-                renderPage(playerRef, session.entityRef(), session.store(), pos, fs);
-            }
+            if (!session.blockPos().equals(pos)) return;
+            // Suppression check removed
+            HyUIPage page = session.page();
+            if (page == null) return;
+            // Only update the dynamic pieces (progress/status) using the existing partialRefresh helper.
+            partialRefresh(playerRef, session, fs, keys[1]);
         });
+    }
+
+    /**
+     * Open the UI using a known FertilizerState instance to avoid lookup overhead.
+     * Passing the state avoids a chunk/state lookup on the render path, which can
+     * be slow in some edge cases and caused UI open delays.
+     */
+    public static void open(PlayerRef playerRef, Ref<EntityStore> entityRef, Store<EntityStore> store, Vector3i pos, FertilizerState fsHint) {
+        // Suppress rapid repeated opens (e.g. held-right-click spam).
+        long now = System.nanoTime();
+        Long lastOpen = OPEN_COOLDOWN_NS.get(playerRef);
+        if (lastOpen != null && now - lastOpen < OPEN_COOLDOWN_NANOS) return;
+        OPEN_COOLDOWN_NS.put(playerRef, now);
+
+        // Manual opens allowed unconditionally.
+
+        PlayerSession existing = SESSIONS.get(playerRef);
+        if (existing != null && existing.blockPos().equals(pos)) {
+            return;
+        }
+        if (existing != null) {
+            WATCHER_COUNT.merge(existing.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
+        }
+        SESSIONS.put(playerRef, new PlayerSession(entityRef, store, pos, null, 0, 0));
+        WATCHER_COUNT.merge(pos, 1, Integer::sum);
+        renderPage(playerRef, entityRef, store, pos, fsHint);
+    }
+
+    /**
+     * Called from {@link FertilizerState#tick} to push updated UI to watching players.
+     * When {@code forceFullRender} is true (e.g. uiDirty), always rebuilds the full page.
+     * Otherwise, a structural key check decides: if only progress/status changed, an
+     * incremental {@link HyUIPage#updatePage} delta is sent instead of a full page replace.
+     */
+    static void tickRefresh(FertilizerState fs, Store<EntityStore> entityStore, Vector3i pos,
+                            boolean forceFullRender) {
+        int[] keys = computeKeys(fs);
+        SESSIONS.forEach((playerRef, session) -> {
+            if (!session.blockPos().equals(pos)) return;
+            HyUIPage page = session.page();
+            if (page == null) return; // only update existing open pages — do not auto-open
+            if (forceFullRender || keys[0] != session.lastStructKey()) {
+                renderPage(playerRef, session.entityRef(), session.store(), pos, fs);
+            } else if (keys[1] != session.lastDynKey()) {
+                partialRefresh(playerRef, session, fs, keys[1]);
+            }
+            // else: both keys match — nothing visible changed, skip.
+        });
+    }
+
+    /** Returns true if at least one player currently has this block's UI open. O(1). */
+    static boolean hasWatcher(Vector3i pos) {
+        Integer count = WATCHER_COUNT.get(pos);
+        return count != null && count > 0;
     }
 
     private static void renderPage(PlayerRef playerRef, Ref<EntityStore> entityRef,
@@ -72,26 +157,32 @@ public final class FertilizerUIPage {
             } catch (Throwable ignored) {}
 
             List<SlotInfo> slots = new ArrayList<>();
-            // Increment the generation for this player before opening so that the old page's
-            // onDismiss (fired when we replace it) sees a stale generation and does nothing.
-            long myGen = PAGE_GENS.computeIfAbsent(playerRef, k -> new AtomicLong()).incrementAndGet();
             PageBuilder builder = PageBuilder.pageForPlayer(playerRef)
                     .fromHtml(buildHtml(fs, inventory, slots))
-                    .withLifetime(CustomPageLifetime.CanDismissOrCloseThroughInteraction)
-                    .onDismiss((page, playerInitiated) -> {
-                        AtomicLong gen = PAGE_GENS.get(playerRef);
-                        if (gen != null && gen.get() == myGen) {
-                            // This is the latest page — player dismissed it (Escape / F).
-                            SESSIONS.remove(playerRef);
-                            PAGE_GENS.remove(playerRef);
-                        }
-                        // else: an older page replaced by a tick refresh — ignore.
-                    });
+                    .withLifetime(CustomPageLifetime.CanDismissOrCloseThroughInteraction);
 
             builder.addEventListener("close-btn", CustomUIEventBindingType.Activating, (ign, ctx) -> {
-                SESSIONS.remove(playerRef);
+                PlayerSession s = SESSIONS.remove(playerRef);
+                if (s != null) {
+                    WATCHER_COUNT.merge(s.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
+                }
+                OPEN_COOLDOWN_NS.remove(playerRef);
                 ctx.getPage().ifPresent(p -> p.close());
             });
+
+                // When the player manually dismisses the page (Escape / F or close button),
+                // record that they explicitly closed it so ticks/processing don't re-open it.
+                builder.onDismiss((page, playerInitiated) -> {
+                    if (playerInitiated) {
+                        PlayerSession s = SESSIONS.remove(playerRef);
+                        if (s != null) {
+                            WATCHER_COUNT.merge(s.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
+                        }
+                        OPEN_COOLDOWN_NS.remove(playerRef);
+                    }
+                    // playerInitiated == false means our own renderPage replaced this page —
+                    // leave the session intact so tickRefresh and open() keep working.
+                });
 
             for (SlotInfo info : slots) {
                 final ItemContainer srcContainer = info.container();
@@ -108,11 +199,102 @@ public final class FertilizerUIPage {
                         transferItem(playerRef, entityRef, store, pos, srcContainer, srcSlot, (short) 1));
             }
 
-            builder.open(store);
+            HyUIPage page = builder.open(store);
+            // Store the live page reference + new render keys so subsequent ticks can
+            // use updatePage(false) for progress-only changes instead of rebuilding HTML.
+            int[] keys = computeKeys(fs);
+            SESSIONS.compute(playerRef, (k, s) -> s == null ? null
+                    : new PlayerSession(s.entityRef(), s.store(), s.blockPos(), page, keys[0], keys[1]));
         } catch (Throwable t) {
             // Player may have disconnected — remove stale session.
             SESSIONS.remove(playerRef);
         }
+    }
+
+    // suppression helpers removed — UI opens only on interaction
+
+    /**
+     * Computes the two-level render keys for a {@link FertilizerState}.
+     * <ul>
+     *   <li>{@code keys[0]} — structural key: fertilizer type + block slot items/quantities.
+     *       Changes require a full {@link #renderPage} rebuild (new HTML + event listeners).</li>
+     *   <li>{@code keys[1]} — dynamic key: progress bucket + isProcessing.
+     *       Changes need only a {@link #partialRefresh} (update a handful of labels/bar).</li>
+     * </ul>
+     */
+    private static int[] computeKeys(FertilizerState fs) {
+        if (fs == null) return new int[]{0, 0};
+        String s0 = null, s1 = null;
+        int q0 = 0, q1 = 0;
+        if (fs.getItemContainer() != null) {
+            ItemStack is0 = fs.getItemContainer().getItemStack((short) 0);
+            ItemStack is1 = fs.getItemContainer().getItemStack((short) 1);
+            if (is0 != null && !is0.isEmpty()) { s0 = is0.getItemId(); q0 = is0.getQuantity(); }
+            if (is1 != null && !is1.isEmpty()) { s1 = is1.getItemId(); q1 = is1.getQuantity(); }
+        }
+        int structKey = Objects.hash(fs.activeFertilizerType, s0, q0, s1, q1);
+        int pct = (fs.isProcessing && fs.effectiveTickInterval > 0)
+                ? (int)(100.0 * fs.processingTimer / fs.effectiveTickInterval) : -1;
+        // Use the same 20% bucket as FertilizerState.tick() so dynKey only changes when
+        // the bucket boundary is crossed — matching the cadence that triggers tickRefresh.
+        int dynKey = Objects.hash(pct / 20, fs.isProcessing);
+        return new int[]{structKey, dynKey};
+    }
+
+    /**
+     * Sends an incremental delta to the client updating only the four dynamic elements:
+     * progress bar fill, status text, progress percentage, and next-tick countdown.
+     * Avoids {@code buildHtml} string generation, {@code fromHtml} HTML parsing,
+     * and {@code PageBuilder.open} full page replacement.
+     */
+    private static void partialRefresh(PlayerRef playerRef, PlayerSession session,
+                                       FertilizerState fs, int newDynKey) {
+        HyUIPage page = session.page();
+        if (page == null) return;
+
+        // ── Recompute only the values that can change between partial refreshes ──
+        int progress = 0;
+        String statusText  = "Idle";
+        String statusColor = "#7a9aaa";
+        String barColor    = "#444444";
+        String nextIn      = "\u2014"; // em dash
+
+        if (fs.isProcessing && fs.effectiveTickInterval > 0) {
+            progress    = Math.min(100, (int)(100.0 * fs.processingTimer / fs.effectiveTickInterval));
+            statusText  = "Active";
+            barColor    = "#4caf50";
+            statusColor = "#81c784";
+            int ticksLeft = fs.effectiveTickInterval - fs.processingTimer;
+            int seconds   = Math.max(0, ticksLeft / 30);
+            nextIn = seconds + "s";
+        }
+
+        final int barFillWidth = (int)(288 * progress / 100.0);
+        final String fBarColor = barColor, fStatusText = statusText,
+                     fStatusColor = statusColor, fNextIn = nextIn;
+        final int fProgress = progress;
+
+        // PanelBuilder requires the raw-string withStyle overload because HyUIStyle covers only
+        // text properties — layout properties (anchor-width, background-color, border-radius)
+        // have no typed setters in this HyUI version.
+        @SuppressWarnings("removal")
+        Runnable barUpdate = () -> page.getById("fert-bar-fill", PanelBuilder.class).ifPresent(p ->
+                p.withStyle("anchor-width: " + barFillWidth + "; anchor-height: 18; background-color: "
+                        + fBarColor + "; border-radius: 9;"));
+        barUpdate.run();
+
+        page.getById("fert-status-val",   LabelBuilder.class).ifPresent(lb ->
+                lb.withText(fStatusText).withStyle(new HyUIStyle().setTextColor(fStatusColor)));
+        page.getById("fert-pct-val",      LabelBuilder.class).ifPresent(lb ->
+                lb.withText(fProgress + "%").withStyle(new HyUIStyle().setTextColor(fStatusColor)));
+        page.getById("fert-nexttick-val", LabelBuilder.class).ifPresent(lb ->
+                lb.withText("Next tick in: " + fNextIn));
+
+        page.updatePage(false);
+
+        // Update session's dynKey — structKey is unchanged.
+        SESSIONS.put(playerRef, new PlayerSession(session.entityRef(), session.store(),
+                session.blockPos(), page, session.lastStructKey(), newDynKey));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -159,7 +341,7 @@ public final class FertilizerUIPage {
         // Bar track width = panel width (320) minus left+right padding (16+16) = 288px.
         int barTrackWidth = 288;
         int barFillWidth  = (int)(barTrackWidth * progress / 100.0);
-        String barFill = "<div style=\"anchor-width: %d; anchor-height: 18; background-color: %s; border-radius: 9;\"></div>"
+        String barFill = "<div id=\"fert-bar-fill\" style=\"anchor-width: %d; anchor-height: 18; background-color: %s; border-radius: 9;\"></div>"
                 .formatted(barFillWidth, barColor);
 
         String leftPanel = """
@@ -168,7 +350,7 @@ public final class FertilizerUIPage {
                     <div class="separator"></div>
 
                     <p class="section-label">Status</p>
-                    <p class="info-label" style="color: %s;">%s</p>
+                    <p id="fert-status-val" class="info-label" style="color: %s;">%s</p>
 
                     <p class="section-label">Fertilizer Type</p>
                     <p class="info-label">%s</p>
@@ -178,8 +360,8 @@ public final class FertilizerUIPage {
                         %s
                     </div>
                     <div style="layout-mode: Left; horizontal-align: center;">
-                        <p class="pct-label" style="color: %s;">%d%%</p>
-                        <p class="info-label" style="padding-left: 12;">Next tick in: %s</p>
+                        <p id="fert-pct-val" class="pct-label" style="color: %s;">%d%%</p>
+                        <p id="fert-nexttick-val" class="info-label" style="padding-left: 12;">Next tick in: %s</p>
                     </div>
 
                     <div class="separator"></div>
@@ -192,8 +374,8 @@ public final class FertilizerUIPage {
                 """.formatted(statusColor, statusText, typeText, barFill, statusColor, progress, nextIn);
 
         // ── Right panel: slot inventory (processing-bench style) ─────────────
-        String slot0Html = buildSlotHtml(slot0Id, slot0Qty, "Fertilizer");
-        String slot1Html = buildSlotHtml(slot1Id, slot1Qty, "Liquid");
+        String slot0Html = buildSlotHtml(slot0Id, slot0Qty, "Fertilizer", "fert-slot0");
+        String slot1Html = buildSlotHtml(slot1Id, slot1Qty, "Liquid",      "fert-slot1");
 
         String rightPanel = """
                 <div style="layout-mode: Top; anchor-width: 200; padding-top: 8; padding-bottom: 8; padding-left: 16; padding-right: 16;">
@@ -236,32 +418,32 @@ public final class FertilizerUIPage {
     // Slot HTML helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static String buildSlotHtml(String itemId, int qty, String label) {
+    private static String buildSlotHtml(String itemId, int qty, String label, String containerId) {
         if (itemId != null) {
             String shortName = prettifyId(itemId);
             return """
-                        <div style="layout-mode: Top; horizontal-align: center; padding-top: 4; padding-bottom: 8;">
+                        <div id="%s" style="layout-mode: Top; horizontal-align: center; padding-top: 4; padding-bottom: 8;">
                             <p class="slot-label">%s</p>
                             <div style="layout-mode: Left; horizontal-align: center; padding-top: 4; padding-bottom: 4;">
-                                <span class="item-icon" data-hyui-item-id="%s"
+                                <span id="%s-icon" class="item-icon" data-hyui-item-id="%s"
                                       style="anchor-width: 48; anchor-height: 48; margin-right: 8;"></span>
                                 <div style="layout-mode: Top; vertical-align: middle;">
-                                    <p class="slot-item-name">%s</p>
-                                    <p class="slot-item-qty">x%d</p>
+                                    <p id="%s-name" class="slot-item-name">%s</p>
+                                    <p id="%s-qty" class="slot-item-qty">x%d</p>
                                 </div>
                             </div>
                         </div>
-                    """.formatted(label, itemId, shortName, qty);
+                    """.formatted(containerId, label, containerId, itemId, containerId, shortName, containerId, qty);
         } else {
             return """
-                        <div style="layout-mode: Top; horizontal-align: center; padding-top: 4; padding-bottom: 8;">
+                        <div id="%s" style="layout-mode: Top; horizontal-align: center; padding-top: 4; padding-bottom: 8;">
                             <p class="slot-label">%s</p>
                             <div style="layout-mode: Left; horizontal-align: center; padding-top: 4; padding-bottom: 4;">
-                                <div class="empty-slot"></div>
-                                <p class="info-label" style="padding-left: 8; vertical-align: middle;">(empty)</p>
+                                <div id="%s-icon" class="empty-slot"></div>
+                                <p id="%s-name" class="info-label" style="padding-left: 8; vertical-align: middle;">(empty)</p>
                             </div>
                         </div>
-                    """.formatted(label);
+                    """.formatted(containerId, label, containerId, containerId);
         }
     }
 
@@ -331,7 +513,7 @@ public final class FertilizerUIPage {
                 String key = stack.getItemId();
                 slotInfoOut.add(new SlotInfo(slotId, container, slotIndex));
                 return "<button id=\"" + slotId + "\" style=\"" + baseStyle + "\">"
-                        + "<span class=\"item-icon\" data-hyui-item-id=\"" + key + "\" "
+                        + "<span id=\"" + slotId + "-icon\" class=\"item-icon\" data-hyui-item-id=\"" + key + "\" "
                         + "style=\"anchor-width: 40; anchor-height: 40;\"></span>"
                         + "</button>\n";
             }
@@ -359,7 +541,85 @@ public final class FertilizerUIPage {
             srcContainer.setItemStackForSlot(srcSlot, ItemStack.EMPTY);
             inv.markChanged();
 
-            renderPage(playerRef, entityRef, store, pos, null);
+            // Try to perform an incremental UI update on any open HyUIPage for this block.
+            // If no page is present, fall back to marking uiDirty for the next tick.
+            boolean updated = false;
+            ItemStack newSlot0 = blockIc.getItemStack((short)0);
+            ItemStack newSlot1 = blockIc.getItemStack((short)1);
+            String new0Id = (newSlot0 != null && !newSlot0.isEmpty()) ? newSlot0.getItemId() : null;
+            int new0Qty = (newSlot0 != null && !newSlot0.isEmpty()) ? safeQty(newSlot0) : 0;
+            String new1Id = (newSlot1 != null && !newSlot1.isEmpty()) ? newSlot1.getItemId() : null;
+            int new1Qty = (newSlot1 != null && !newSlot1.isEmpty()) ? safeQty(newSlot1) : 0;
+
+            for (var entry : SESSIONS.entrySet()) {
+            PlayerRef r = entry.getKey();
+            PlayerSession s = entry.getValue();
+            if (!Objects.equals(s.blockPos(), pos)) continue;
+            HyUIPage page = s.page();
+            if (page == null) continue;
+
+            // Update block slot 0
+            if (new0Id != null) {
+                page.getById("fert-slot0-icon", au.ellie.hyui.builders.ItemIconBuilder.class)
+                    .ifPresent(b -> b.withItemId(new0Id));
+                page.getById("fert-slot0-name", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText(prettifyId(new0Id)));
+                page.getById("fert-slot0-qty", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText("x" + new0Qty));
+            } else {
+                page.getById("fert-slot0-name", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText("(empty)"));
+                page.getById("fert-slot0-icon", au.ellie.hyui.builders.ItemIconBuilder.class)
+                    .ifPresent(b -> b.withItemId(""));
+                page.getById("fert-slot0-qty", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText(""));
+            }
+
+            // Update block slot 1
+            if (new1Id != null) {
+                page.getById("fert-slot1-icon", au.ellie.hyui.builders.ItemIconBuilder.class)
+                    .ifPresent(b -> b.withItemId(new1Id));
+                page.getById("fert-slot1-name", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText(prettifyId(new1Id)));
+                page.getById("fert-slot1-qty", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText("x" + new1Qty));
+            } else {
+                page.getById("fert-slot1-name", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText("(empty)"));
+                page.getById("fert-slot1-icon", au.ellie.hyui.builders.ItemIconBuilder.class)
+                    .ifPresent(b -> b.withItemId(""));
+                page.getById("fert-slot1-qty", LabelBuilder.class)
+                    .ifPresent(lb -> lb.withText(""));
+            }
+
+            // Update the source player's inventory slot icon (hotbar or storage)
+            String srcSlotId = null;
+            try {
+                ItemContainer hotbar = player.getInventory().getHotbar();
+                if (hotbar == srcContainer) srcSlotId = "inv_h_" + srcSlot;
+                else srcSlotId = "inv_s_" + srcSlot;
+            } catch (Throwable ignored) {}
+
+            if (srcSlotId != null) {
+                ItemStack after = srcContainer.getItemStack(srcSlot);
+                String afterId = (after != null && !after.isEmpty()) ? after.getItemId() : "";
+                page.getById(srcSlotId + "-icon", au.ellie.hyui.builders.ItemIconBuilder.class)
+                    .ifPresent(b -> b.withItemId(afterId));
+            }
+
+            // Push the incremental update
+            page.updatePage(false);
+
+            // Refresh the stored keys for this session
+            int[] keys = computeKeys(fs);
+            SESSIONS.put(r, new PlayerSession(s.entityRef(), s.store(), s.blockPos(), page, keys[0], keys[1]));
+            updated = true;
+            }
+
+            if (!updated) {
+            // No open pages to update — mark dirty for the next tick refresh path.
+            fs.uiDirty = true;
+            }
         } catch (Throwable ignored) {}
     }
 
