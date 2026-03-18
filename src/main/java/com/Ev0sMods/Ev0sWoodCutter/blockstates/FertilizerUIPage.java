@@ -77,6 +77,24 @@ public final class FertilizerUIPage {
     }
 
     /**
+     * Force-open API: always opens the UI for the player, bypassing the manual-open
+     * cooldown suppression used by `open`. Intended for explicit player actions
+     * where the UI must appear regardless of ArcIO, cooldowns, or other blockers.
+     */
+    public static void openForced(PlayerRef playerRef, Ref<EntityStore> entityRef, Store<EntityStore> store, Vector3i pos) {
+        PlayerSession existing = SESSIONS.get(playerRef);
+        if (existing != null && existing.blockPos().equals(pos)) {
+            return;
+        }
+        if (existing != null) {
+            WATCHER_COUNT.merge(existing.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
+        }
+        SESSIONS.put(playerRef, new PlayerSession(entityRef, store, pos, null, 0, 0));
+        WATCHER_COUNT.merge(pos, 1, Integer::sum);
+        renderPage(playerRef, entityRef, store, pos, null);
+    }
+
+    /**
      * Force a periodic dynamic update for all watching players without rebuilding the full page.
      * Respects manual suppression so players who closed the UI won't be auto-updated.
      */
@@ -106,6 +124,22 @@ public final class FertilizerUIPage {
 
         // Manual opens allowed unconditionally.
 
+        PlayerSession existing = SESSIONS.get(playerRef);
+        if (existing != null && existing.blockPos().equals(pos)) {
+            return;
+        }
+        if (existing != null) {
+            WATCHER_COUNT.merge(existing.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
+        }
+        SESSIONS.put(playerRef, new PlayerSession(entityRef, store, pos, null, 0, 0));
+        WATCHER_COUNT.merge(pos, 1, Integer::sum);
+        renderPage(playerRef, entityRef, store, pos, fsHint);
+    }
+
+    /**
+     * Forced variant that accepts a state hint and bypasses the cooldown suppression.
+     */
+    public static void openForced(PlayerRef playerRef, Ref<EntityStore> entityRef, Store<EntityStore> store, Vector3i pos, FertilizerState fsHint) {
         PlayerSession existing = SESSIONS.get(playerRef);
         if (existing != null && existing.blockPos().equals(pos)) {
             return;
@@ -173,15 +207,13 @@ public final class FertilizerUIPage {
                 // When the player manually dismisses the page (Escape / F or close button),
                 // record that they explicitly closed it so ticks/processing don't re-open it.
                 builder.onDismiss((page, playerInitiated) -> {
-                    if (playerInitiated) {
-                        PlayerSession s = SESSIONS.remove(playerRef);
-                        if (s != null) {
-                            WATCHER_COUNT.merge(s.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
-                        }
-                        OPEN_COOLDOWN_NS.remove(playerRef);
+                    // Treat any dismiss (Escape / F / Close) the same as the close button:
+                    // remove the session, decrement watcher count, and clear the open cooldown.
+                    PlayerSession s = SESSIONS.remove(playerRef);
+                    if (s != null) {
+                        WATCHER_COUNT.merge(s.blockPos(), -1, (a, b) -> (a + b <= 0) ? null : a + b);
                     }
-                    // playerInitiated == false means our own renderPage replaced this page —
-                    // leave the session intact so tickRefresh and open() keep working.
+                    OPEN_COOLDOWN_NS.remove(playerRef);
                 });
 
             for (SlotInfo info : slots) {

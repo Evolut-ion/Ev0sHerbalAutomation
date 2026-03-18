@@ -198,9 +198,11 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         }
 
         // If ArcIO is installed, register as a mechanism and check signal.
+        boolean arcioCurrentlyActive = true;
         if (ARCIO_PRESENT) {
             ensureArcioComponents(w);
             boolean active = isArcioActive(w);
+            arcioCurrentlyActive = active;
             if (active != lastArcioActive) {
                 lastArcioActive = active;
                 HytaleLogger.getLogger().atInfo().log(
@@ -209,8 +211,9 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                     active ? "ON - fertilizer enabled" : "OFF - fertilizer paused");
             }
             if (!active) {
+                // Pause animations/processing when ArcIO disables the machine, but do NOT
+                // return here — continue so UI open/refresh and interaction still work.
                 setAnimState(w, false);
-                return;
             }
         }
 
@@ -222,6 +225,15 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             inputCheckTimer = 0;
             checkInputItems(w);
             fixSlotAssignments(w);
+        }
+
+        // If ArcIO is present and its signal is OFF, pause processing but continue
+        // executing the rest of the tick so UI open/refresh still works.
+        boolean arcioPausing = (ARCIO_PRESENT && !arcioCurrentlyActive);
+        if (arcioPausing) {
+            if (isProcessing) {
+                stopProcessing();
+            }
         }
 
         if (isProcessing) {
@@ -298,7 +310,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         try {
             PlayerRef playerRef = store.getComponent(playerEntityRef, PlayerRef.getComponentType());
             if (playerRef == null) return;
-            FertilizerUIPage.open(playerRef, playerEntityRef, store, getBlockPosition(), this);
+            FertilizerUIPage.openForced(playerRef, playerEntityRef, store, getBlockPosition(), this);
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] Failed to open UI: %s",

@@ -46,16 +46,21 @@ public class FertilizerInteraction extends SimpleBlockInteraction {
             @Nonnull Vector3i blockPos,
             @Nonnull CooldownHandler cooldownHandler) {
 
-        try {
+        //try {
             Ref<EntityStore> playerEnt = interactionContext.getOwningEntity();
             Store<EntityStore> store = playerEnt.getStore();
             PlayerRef playerRef = store.getComponent(playerEnt, PlayerRef.getComponentType());
-            if (playerRef == null) return;
-            FertilizerUIPage.open(playerRef, playerEnt, store, blockPos);
-        } catch (Throwable t) {
-            HytaleLogger.getLogger().atWarning().log(
-                "[FertilizerInteraction] Failed to open UI: " + t.getMessage());
-        }
+            //if (playerRef == null) return;
+            try {
+                FertilizerUIPage.openForced(playerRef, playerEnt, store, blockPos);
+            } catch (Throwable t) {
+                HytaleLogger.getLogger().atWarning().log(
+                    "[FertilizerInteraction] Failed to open UI: " + t.getMessage());
+            }
+        // } catch (Throwable t) {
+        //     HytaleLogger.getLogger().atWarning().log(
+        //         "[FertilizerInteraction] Failed to open UI: " + t.getMessage());
+        // }
     }
 
     @Override
