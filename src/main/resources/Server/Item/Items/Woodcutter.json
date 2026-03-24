@@ -40,7 +40,26 @@
     "Interactions": {
       "Use": "Open_Container"
     },
-    "VariantRotation": "NESW"
+    "VariantRotation": "NESW",
+    "BlockEntity": {
+      "Components": {
+        "Woodcutter": {
+          "Size": 5
+        },
+        "ItemContainerBlock": {
+          "Capacity": 15,
+          "ItemContainer": {
+            "Capacity": 15
+          }
+        },
+        "ArcioMechanism": {
+          "MechanismType": "Woodcutter",
+          "RequiredSignal": 0,
+          "SignalGenerated": 1
+        },
+        "ArcioBlockUUID": {}
+      }
+    }
   },
   "Tags": {
     "Type": [

@@ -42,7 +42,20 @@
         ]
       }
     },
-    "VariantRotation": "NESW"
+    "VariantRotation": "NESW",
+    "BlockEntity": {
+      "Components": {
+        "FertilizerState": {
+          "Size": 5
+        },
+        "ArcioMechanism": {
+          "MechanismType": "Fertilizer",
+          "RequiredSignal": 0,
+          "SignalGenerated": 1
+        },
+        "ArcioBlockUUID": {}
+      }
+    }
   },
   "Tags": {
     "Type": [
@@ -83,4 +96,3 @@
     ]
   }
 }
-

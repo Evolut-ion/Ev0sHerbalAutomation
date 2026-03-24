@@ -1,9 +1,10 @@
 package com.Ev0sMods.Ev0sWoodCutter.blockstates;
 
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.universe.world.World;
+
 import voidbond.arcio.components.ArcioMechanismComponent;
 import voidbond.arcio.mechanisms.IMechanism;
-import com.hypixel.hytale.server.core.universe.world.World;
 
 /**
  * IMechanism handler for the Woodcutter block, registered via ArcIO.
@@ -61,14 +62,17 @@ public class WoodCutterMechanismHandler implements IMechanism {
                     "[WoodCutter] setState reflection failed at %d,%d,%d: %s", x, y, z, e.getMessage());
         }
 
+        // Set the signal on the component so ArcIO can propagate it downstream.
+        mechanismComponent.setSignal(active ? signal : 0);
+
         if (active) {
             HytaleLogger.getLogger().atFine().log(
                     "[WoodCutter] Mechanism ON at %d,%d,%d (signal=%d, required=%d)",
                     x, y, z, signal, required);
         }
 
-        // Return the signal so ArcIO can propagate it downstream if needed.
-        return signal;
+        // Return 0 to indicate valid mechanism (non-zero = "not a valid type").
+        return 0;
     }
 
     /**

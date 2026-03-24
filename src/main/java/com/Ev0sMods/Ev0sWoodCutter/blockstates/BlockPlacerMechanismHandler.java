@@ -1,9 +1,10 @@
 package com.Ev0sMods.Ev0sWoodCutter.blockstates;
 
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.universe.world.World;
+
 import voidbond.arcio.components.ArcioMechanismComponent;
 import voidbond.arcio.mechanisms.IMechanism;
-import com.hypixel.hytale.server.core.universe.world.World;
 
 /**
  * IMechanism handler for the BlockPlacer block.
@@ -32,12 +33,14 @@ public class BlockPlacerMechanismHandler implements IMechanism {
                     "[BlockPlacer] setState reflection failed at %d,%d,%d: %s", x, y, z, e.getMessage());
         }
 
+        arcioMechanismComponent.setSignal(active ? signal : 0);
+
         if (active) {
             HytaleLogger.getLogger().atFine().log(
                     "[BlockPlacer] Mechanism ON at %d,%d,%d (signal=%d, required=%d)",
                     x, y, z, signal, required);
         }
-        return signal;
+        return 0;
     }
 
     @Override

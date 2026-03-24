@@ -13,7 +13,11 @@ repositories {
     mavenCentral()
     maven {
         name = "hytale"
-        url = uri("https://maven.hytale.com/release") // Or "hytale-pre-release" for pre-release versions
+        url = uri("https://maven.hytale.com/release")
+    }
+    maven {
+        name = "hytale-pre-release"
+        url = uri("https://maven.hytale.com/pre-release")
     }
     maven {
         name = "cursemaven"
@@ -23,7 +27,18 @@ repositories {
 
 dependencies {
     // Hytale Server API (provided by server at runtime)
-    compileOnly("com.hypixel.hytale:Server:+")
+    val hytaleBuild = findProperty("hytale_build") as String? ?: "+"
+    compileOnly("com.hypixel.hytale:Server:$hytaleBuild")
+
+    // Also compile against the local HytaleServer.jar so method descriptors
+    // match the actual runtime classes (avoids NoSuchMethodError on fastutil
+    // return types that differ between the Maven artifact and the shipped jar).
+    val hytaleHome = System.getProperty("user.home") + "/AppData/Roaming/Hytale"
+    val patchline = "pre-release"
+    val localJar = file("$hytaleHome/install/$patchline/package/game/latest/Server/HytaleServer.jar")
+    if (localJar.exists()) {
+        compileOnly(files(localJar))
+    }
 
     // ArcIO mod (provided by server at runtime, optional)
     compileOnly("curse.maven:arcio-1473915:7692946")

@@ -17,7 +17,9 @@ import com.hypixel.hytale.server.core.inventory.ItemStack;
 import com.hypixel.hytale.server.core.inventory.container.ItemContainer;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
+import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
 import com.hypixel.hytale.server.core.universe.world.chunk.WorldChunk;
+import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 
 import java.util.ArrayList;
@@ -571,7 +573,6 @@ public final class FertilizerUIPage {
 
             blockIc.setItemStackForSlot(blockSlot, moving);
             srcContainer.setItemStackForSlot(srcSlot, ItemStack.EMPTY);
-            inv.markChanged();
 
             // Try to perform an incremental UI update on any open HyUIPage for this block.
             // If no page is present, fall back to marking uiDirty for the next tick.
@@ -785,10 +786,18 @@ public final class FertilizerUIPage {
         try {
             World world = store.getExternalData().getWorld();
             if (world == null) return null;
-            WorldChunk chunk = world.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(pos.x, pos.z));
-            if (chunk == null) return null;
-            Object state = chunk.getState(pos.x, pos.y, pos.z);
-            return (state instanceof FertilizerState fs) ? fs : null;
+            Store<ChunkStore> cs = world.getChunkStore().getStore();
+            Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
+                    ChunkUtil.indexChunkFromBlock(pos.x, pos.z));
+            if (chunkRef == null) return null;
+            BlockComponentChunk bcc = (BlockComponentChunk) cs.getComponent(
+                    chunkRef, BlockComponentChunk.getComponentType());
+            if (bcc == null) return null;
+            Ref<ChunkStore> blockRef = bcc.getEntityReference(
+                    ChunkUtil.indexBlockInColumn(pos.x, pos.y, pos.z));
+            if (blockRef == null) return null;
+            Object comp = cs.getComponent(blockRef, FertilizerState.COMPONENT_TYPE);
+            return (comp instanceof FertilizerState fs) ? fs : null;
         } catch (Throwable t) {
             return null;
         }

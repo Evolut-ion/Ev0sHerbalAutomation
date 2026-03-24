@@ -1,8 +1,5 @@
 package com.Ev0sMods.Ev0sWoodCutter.blockstates;
 
-import com.Ev0sMods.Ev0sWoodCutter.interactions.CutterFarmingStageInteraction;
-import com.hypixel.hytale.builtin.adventure.farming.FarmingSystems;
-import com.hypixel.hytale.builtin.adventure.farming.interactions.HarvestCropInteraction;
 import com.hypixel.hytale.builtin.adventure.farming.states.FarmingBlock;
 import com.hypixel.hytale.component.*;
 import com.hypixel.hytale.component.spatial.SpatialResource;
@@ -12,85 +9,56 @@ import com.hypixel.hytale.math.vector.Vector3d;
 import com.hypixel.hytale.math.vector.Vector3i;
 import com.hypixel.hytale.protocol.*;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
-import com.hypixel.hytale.server.core.asset.type.blocktype.config.RotationTuple;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.StateData;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.farming.FarmingData;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.farming.FarmingStageData;
 import com.hypixel.hytale.server.core.asset.type.item.config.Item;
-import com.hypixel.hytale.server.core.asset.type.item.config.ResourceType;
-import com.hypixel.hytale.server.core.asset.type.model.config.ModelAsset;
 import com.hypixel.hytale.server.core.entity.AnimationUtils;
-import com.hypixel.hytale.server.core.entity.InteractionContext;
 import com.hypixel.hytale.server.core.entity.entities.BlockEntity;
 import com.hypixel.hytale.server.core.inventory.ItemStack;
 import com.hypixel.hytale.server.core.inventory.container.ItemContainer;
 import com.hypixel.hytale.server.core.inventory.container.SimpleItemContainer;
-import com.hypixel.hytale.server.core.modules.block.BlockModule;
+import com.hypixel.hytale.server.core.inventory.container.filter.FilterActionType;
 import com.hypixel.hytale.server.core.modules.entity.EntityModule;
-import com.hypixel.hytale.server.core.modules.entity.component.ModelComponent;
 import com.hypixel.hytale.server.core.modules.entity.item.ItemComponent;
-import com.hypixel.hytale.server.core.modules.interaction.BlockHarvestUtils;
-import com.hypixel.hytale.server.core.modules.interaction.interaction.config.RootInteraction;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.ParticleUtil;
 import com.hypixel.hytale.server.core.universe.world.SetBlockSettings;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
 import com.hypixel.hytale.server.core.universe.world.chunk.WorldChunk;
 import com.hypixel.hytale.server.core.universe.world.chunk.state.TickableBlockState;
-import com.hypixel.hytale.server.core.universe.world.meta.BlockState;
-import com.hypixel.hytale.server.core.universe.world.meta.state.ItemContainerBlockState;
-import com.hypixel.hytale.server.core.universe.world.meta.state.ItemContainerState;
 import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.KeyedCodec;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
-import com.hypixel.hytale.math.util.ChunkUtil;
-import com.hypixel.hytale.server.core.inventory.container.filter.FilterActionType;
-import com.hypixel.hytale.server.core.universe.world.chunk.BlockComponentChunk;
-import it.unimi.dsi.fastutil.objects.ObjectList;
+import java.util.Map;
 import voidbond.arcio.ArcioPlugin;
 import voidbond.arcio.components.ArcioMechanismComponent;
 import voidbond.arcio.components.BlockUUIDComponent;
 
-import com.hypixel.hytale.server.core.universe.PlayerRef;
-
 import javax.annotation.Nonnull;
-
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Objects;
 
-@SuppressWarnings("removal")
-public class FertilizerState extends ItemContainerState implements TickableBlockState, ItemContainerBlockState {
+public class FertilizerState implements Component<ChunkStore>, TickableBlockState {
 
     // ── Fertilizer type registry ──────────────────────────────────────────────
-    /**
-     * Describes every fertilizer item accepted in slot 0.
-     *
-     * tickInterval – ticks between growth applications (at 30 TPS; 1800 = 60 s).
-     * treeOnly     – when true only sapling/tree blocks are targeted.
-     * standaloneWater – when true the item does NOT require liquid in slot 1.
-     */
     public enum FertilizerType {
         NONE                (0,    false, false),
-        STANDARD_WATER      (1800, false, false),  // any 'fertil*' item + liquid (fert water halves interval)
-        // Custom fertilizers matching NoCube speeds
-        TOOL_COMPOST        (900,  false, false),  // Tool_Compost, matches Nocube Lime
-        TOOL_SUPER_COMPOST  (450,  false, false),  // Tool_Super_Compost, matches Nocube Bone
-        TOOL_ULTRA_COMPOST  (450,  false, false),  // Tool_Ultra_Compost, matches Nocube Bone
-        // NoCube's Orchard — all require liquid in slot 1
-        NOCUBE_TREE         (900,  true,  false),  // NoCube_Ingredient_Tree_Fertilizer (trees only)
-        // NoCube's Cultivation — all require liquid in slot 1
-        NOCUBE_LIME         (900,  false, false),  // NoCube_Tool_Fertilizer_Lime
-        NOCUBE_BONE         (450,  false, false),  // NoCube_Tool_Fertilizer_Bone
-        NOCUBE_SEASHELL     (225,  false, false),  // NoCube_Tool_Fertilizer_Seashell
-        NOCUBE_ELITE        (113,  false, false);  // NoCube_Tool_Fertilizer_Elite
+        STANDARD_WATER      (1800, false, false),
+        TOOL_COMPOST        (900,  false, false),
+        TOOL_SUPER_COMPOST  (450,  false, false),
+        TOOL_ULTRA_COMPOST  (450,  false, false),
+        NOCUBE_TREE         (900,  true,  false),
+        NOCUBE_LIME         (900,  false, false),
+        NOCUBE_BONE         (450,  false, false),
+        NOCUBE_SEASHELL     (225,  false, false),
+        NOCUBE_ELITE        (113,  false, false);
 
         public final int tickInterval;
         public final boolean treeOnly;
-        /** True = no water in slot 1 required; consumes only from slot 0. */
         public final boolean standalone;
 
         FertilizerType(int tickInterval, boolean treeOnly, boolean standalone) {
@@ -100,16 +68,23 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    /** Set during plugin registration. */
+    public static ComponentType<ChunkStore, FertilizerState> COMPONENT_TYPE;
 
     public World w;
     private int square;
-    public ItemContainer ic;
-    public static final BuilderCodec<FertilizerState> CODEC = BuilderCodec.builder(FertilizerState.class, FertilizerState::new, BlockState.BASE_CODEC)
+    private SimpleItemContainer itemContainer;
+
+    public static final BuilderCodec<FertilizerState> CODEC = BuilderCodec.builder(FertilizerState.class, FertilizerState::new)
             .append(new KeyedCodec<>("Size", Codec.INTEGER, true), (i, v) -> i.square = v, i -> i.square).add().build();
-    public Data data;
+
     public int timer = 0;
     public int processingTimer = 0;
+
+    // --- Component position resolution ---
+    private Vector3i cachedPosition = new Vector3i(0, 0, 0);
+    private boolean positionResolved = false;
+    private int cachedRotation = 0;
 
     /** Tracks the last known ArcIO signal state so we only log on changes. */
     private boolean lastArcioActive = false;
@@ -171,21 +146,176 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
      * Cleared after each push so idle machines never call renderPage.
      */
     boolean uiDirty = false;
-    /** Cached block position — avoids three getBlockPosition() calls per tick in the UI path. */
+    /** Cached block position — avoids repeated Vector3i construction in the UI path. */
     private Vector3i cachedBlockPos = null;
     /** Last progress % sent to the UI — used to only push when crossing a 10% boundary. */
     private int lastUiProgress = -1;
 
+    public FertilizerState() {
+        this.itemContainer = new SimpleItemContainer((short) 2);
+        // Slot 0: Any item whose ID contains 'fertil' (case-insensitive),
+        //         excluding fertilizer water which belongs in slot 1.
+        itemContainer.setSlotFilter(FilterActionType.ADD, (short) 0, (actionType, container, slot, itemStack) ->
+            itemStack != null && isFertilizer(itemStack.getItemId()) && !isFertilizerWater(itemStack.getItemId()));
+        // Slot 1: Only allow water or fertilizer water
+        itemContainer.setSlotFilter(FilterActionType.ADD, (short) 1, (actionType, container, slot, itemStack) -> {
+            return itemStack != null && (
+                itemStack.getItemId().equals("Container_Bucket_State_Filled_Water") ||
+                itemStack.getItemId().equals("*Container_Bucket_State_Filled_Water") ||
+                itemStack.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
+                itemStack.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
+            );
+        });
+    }
+
+    public FertilizerState(FertilizerState other) {
+        this(); // set up item container with filters
+        this.square = other.square;
+    }
+
+    @Override
+    public FertilizerState clone() {
+        return new FertilizerState(this);
+    }
+
+    @Override
+    public WorldChunk getChunk() {
+        return null;
+    }
+
+    @Override
+    public Vector3i getPosition() {
+        return cachedPosition;
+    }
+
+    @Override
+    public void invalidate() {
+        // no-op
+    }
+
+    public ItemContainer getItemContainer() {
+        return itemContainer;
+    }
+
+    /**
+     * Try engine-provided position accessors via reflection before falling
+     * back to the manual chunk-scan approach.
+     */
+    private void probeAndGetBlockPosition() {
+        try {
+            Class<?> sc = this.getClass().getSuperclass();
+            if (sc != null) {
+                for (String name : new String[]{"getBlockPosition", "getPosition", "getPos", "position"}) {
+                    try {
+                        java.lang.reflect.Method m = sc.getMethod(name);
+                        Object r = m.invoke(this);
+                        if (r instanceof Vector3i v3 && !(v3.x == 0 && v3.y == 0 && v3.z == 0)) {
+                            cachedPosition = v3;
+                            cachedBlockPos = v3;
+                            positionResolved = true;
+                            return;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /** Cached reflection handle for BlockComponentChunk.getEntityReferences(). */
+    private static volatile java.lang.reflect.Method entityRefsMethod;
+    private static volatile boolean entityRefsMethodResolved = false;
+
+    @SuppressWarnings("unchecked")
+    private void resolvePosition(Store<ChunkStore> store, Ref<ChunkStore> myRef) {
+        try {
+            int myIdx = myRef.getIndex();
+            ChunkStore cs = store.getExternalData();
+            var chunks = cs.getChunkIndexes();
+            if (chunks == null || chunks.isEmpty()) return;
+
+            for (long chunkIdx : chunks) {
+                Ref<ChunkStore> colRef = cs.getChunkReference(chunkIdx);
+                if (colRef == null) continue;
+                BlockComponentChunk bcc = store.getComponent(colRef, BlockComponentChunk.getComponentType());
+                if (bcc == null) continue;
+
+                // Use reflection to invoke getEntityReferences() — the compile-time
+                // return type (Int2ObjectMap) does not match the runtime descriptor.
+                Map<?, ?> entityRefs = getEntityRefsViaReflection(bcc);
+                if (entityRefs == null) continue;
+
+                for (Map.Entry<?, ?> entry : entityRefs.entrySet()) {
+                    Object key = entry.getKey();
+                    Object val = entry.getValue();
+                    if (!(key instanceof Integer blockIndex)) continue;
+                    if (!(val instanceof Ref<?> blockRef)) continue;
+                    if (blockRef.getIndex() == myIdx) {
+                        int lx = ChunkUtil.xFromBlockInColumn(blockIndex);
+                        int wy = ChunkUtil.yFromBlockInColumn(blockIndex);
+                        int lz = ChunkUtil.zFromBlockInColumn(blockIndex);
+                        int wx = ChunkUtil.worldCoordFromLocalCoord(ChunkUtil.xOfChunkIndex(chunkIdx), lx);
+                        int wz = ChunkUtil.worldCoordFromLocalCoord(ChunkUtil.zOfChunkIndex(chunkIdx), lz);
+                        cachedPosition = new Vector3i(wx, wy, wz);
+                        cachedBlockPos = new Vector3i(wx, wy, wz);
+                        positionResolved = true;
+                        return;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<?, ?> getEntityRefsViaReflection(BlockComponentChunk bcc) {
+        try {
+            if (!entityRefsMethodResolved) {
+                synchronized (FertilizerState.class) {
+                    if (!entityRefsMethodResolved) {
+                        for (java.lang.reflect.Method m : bcc.getClass().getMethods()) {
+                            if ("getEntityReferences".equals(m.getName()) && m.getParameterCount() == 0) {
+                                m.setAccessible(true);
+                                entityRefsMethod = m;
+                                break;
+                            }
+                        }
+                        entityRefsMethodResolved = true;
+                    }
+                }
+            }
+            if (entityRefsMethod == null) return null;
+            Object result = entityRefsMethod.invoke(bcc);
+            if (result instanceof Map<?, ?> map) return map;
+            return null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     @Override
     public void tick(
             float v,
-            int i,
+            int index,
             ArchetypeChunk<ChunkStore> archetypeChunk,
             Store<ChunkStore> store,
             CommandBuffer<ChunkStore> commandBuffer
     ) {
         World w = store.getExternalData().getWorld();
         if (w == null) return;
+
+        // Resolve position on first tick
+        if (!positionResolved) {
+            probeAndGetBlockPosition();
+            if (!positionResolved) {
+                resolvePosition(store, archetypeChunk.getReferenceTo(index));
+            }
+            if (!positionResolved) return;
+        }
+
+        // Resolve rotation from chunk
+        WorldChunk posChunk = w.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(cachedPosition.x, cachedPosition.z));
+        if (posChunk != null) {
+            cachedRotation = posChunk.getRotationIndex(cachedPosition.x, cachedPosition.y, cachedPosition.z);
+        }
 
         // Countdown the animation hold timer every tick.
         if (animHoldTimer > 0) {
@@ -200,26 +330,22 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         // If ArcIO is installed, register as a mechanism and check signal.
         boolean arcioCurrentlyActive = true;
         if (ARCIO_PRESENT) {
-            ensureArcioComponents(w);
+            ensureArcioComponents(w, commandBuffer);
             boolean active = isArcioActive(w);
             arcioCurrentlyActive = active;
             if (active != lastArcioActive) {
                 lastArcioActive = active;
                 HytaleLogger.getLogger().atInfo().log(
                     "[Fertilizer %d,%d,%d] ArcIO signal %s",
-                    getBlockX(), getBlockY(), getBlockZ(),
+                    cachedPosition.x, cachedPosition.y, cachedPosition.z,
                     active ? "ON - fertilizer enabled" : "OFF - fertilizer paused");
             }
             if (!active) {
-                // Pause animations/processing when ArcIO disables the machine, but do NOT
-                // return here — continue so UI open/refresh and interaction still work.
                 setAnimState(w, false);
             }
         }
 
         // Check inventory every 20 ticks to reduce overhead.
-        // Uses a dedicated counter so the check is throttled even when isProcessing=false
-        // (processingTimer stays 0 when idle, making % 20 always true — which was a bug).
         inputCheckTimer++;
         if (inputCheckTimer >= 20) {
             inputCheckTimer = 0;
@@ -227,8 +353,6 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             fixSlotAssignments(w);
         }
 
-        // If ArcIO is present and its signal is OFF, pause processing but continue
-        // executing the rest of the tick so UI open/refresh still works.
         boolean arcioPausing = (ARCIO_PRESENT && !arcioCurrentlyActive);
         if (arcioPausing) {
             if (isProcessing) {
@@ -242,23 +366,38 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
 
             int interval = effectiveTickInterval;
             if (interval <= 0) {
-                // No valid fertilizer type — stop.
+                HytaleLogger.getLogger().atInfo().log(
+                    "[Fertilizer %d,%d,%d] interval<=0, stopping processing (type=%s)",
+                    cachedPosition.x, cachedPosition.y, cachedPosition.z, activeFertilizerType);
                 stopProcessing();
                 setAnimState(w, false);
             } else if (processingTimer >= interval) {
+                HytaleLogger.getLogger().atInfo().log(
+                    "[Fertilizer %d,%d,%d] processing tick fired (type=%s treeOnly=%b rot=%d)",
+                    cachedPosition.x, cachedPosition.y, cachedPosition.z,
+                    activeFertilizerType, activeFertilizerType.treeOnly, cachedRotation);
                 int advanced = applyGrowthTick(w, activeFertilizerType.treeOnly);
+                HytaleLogger.getLogger().atInfo().log(
+                    "[Fertilizer %d,%d,%d] applyGrowthTick returned %d",
+                    cachedPosition.x, cachedPosition.y, cachedPosition.z, advanced);
                 consumeResources();
                 processingTimer = 0;
                 setAnimState(w, advanced > 0);
-                // One dose = one growth application.
                 stopProcessing();
             }
         } else {
             timer++;
             if (timer >= 300) {
                 timer = 0;
+                HytaleLogger.getLogger().atInfo().log(
+                    "[Fertilizer %d,%d,%d] 300-tick timer fired (type=%s arcioPausing=%b)",
+                    cachedPosition.x, cachedPosition.y, cachedPosition.z,
+                    activeFertilizerType, arcioPausing);
                 if (activeFertilizerType != FertilizerType.NONE) {
                     int advanced = applyGrowthTick(w, activeFertilizerType.treeOnly);
+                    HytaleLogger.getLogger().atInfo().log(
+                        "[Fertilizer %d,%d,%d] 300-tick applyGrowthTick returned %d",
+                        cachedPosition.x, cachedPosition.y, cachedPosition.z, advanced);
                     consumeResources();
                     setAnimState(w, advanced > 0);
                 }
@@ -271,12 +410,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             setAnimState(w, false);
         }
 
-        // UI auto-refresh:
-        //   • Immediate full rebuild when uiDirty (state changed this tick — items, processing state).
-        //   • While processing, push only when progress crosses a 20% bucket boundary;
-        //     if only progress/status changed, a cheap incremental updatePage() is used instead
-        //     of a full HTML rebuild + PageBuilder.open() (see FertilizerUIPage.partialRefresh).
-        //   • Idle machines with no state changes: zero calls to renderPage.
+        // UI auto-refresh
         if (HYUI_PRESENT && FertilizerUIPage.hasWatcher(cachedBlockPos)) {
             if (uiDirty) {
                 uiDirty = false;
@@ -295,26 +429,11 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 uiTick = 0;
                 lastUiProgress = -1;
             }
-            // Periodic update every 3 seconds (90 ticks at 30 TPS) for watching UIs.
             periodicUiTimer++;
             if (periodicUiTimer >= 90) {
                 periodicUiTimer = 0;
                 FertilizerUIPage.periodicRefresh(this, w.getEntityStore().getStore(), cachedBlockPos);
             }
-        }
-    }
-
-    @Override
-    public void onOpen(Ref<EntityStore> playerEntityRef, World world, Store<EntityStore> store) {
-        if (!HYUI_PRESENT) return;
-        try {
-            PlayerRef playerRef = store.getComponent(playerEntityRef, PlayerRef.getComponentType());
-            if (playerRef == null) return;
-            FertilizerUIPage.openForced(playerRef, playerEntityRef, store, getBlockPosition(), this);
-        } catch (Exception e) {
-            HytaleLogger.getLogger().atWarning().log(
-                "[Fertilizer %d,%d,%d] Failed to open UI: %s",
-                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
         }
     }
 
@@ -336,7 +455,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
     }
 
     private void checkInputItems(World w) {
-        if (this.getItemContainer() == null) {
+        if (this.itemContainer == null) {
             hasFertilizer = false;
             hasWater = false;
             hasFertilizerWater = false;
@@ -345,10 +464,9 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             return;
         }
 
-        ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short) 0);
-        ItemStack waterSlot      = this.getItemContainer().getItemStack((short) 1);
+        ItemStack fertilizerSlot = this.itemContainer.getItemStack((short) 0);
+        ItemStack waterSlot      = this.itemContainer.getItemStack((short) 1);
 
-        // Snapshot current slot contents to detect real inventory changes.
         String cur0Id  = fertilizerSlot != null ? fertilizerSlot.getItemId() : null;
         int    cur0Qty = fertilizerSlot != null ? fertilizerSlot.getQuantity() : 0;
         String cur1Id  = waterSlot != null ? waterSlot.getItemId() : null;
@@ -368,12 +486,9 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
         );
 
-        // Resolve the specific fertilizer type from slot 0.
-        // All types now require liquid in slot 1; fertilizer water halves the tick interval.
         boolean hasLiquid = hasWater || hasFertilizerWater;
         if (hasFertilizer) {
             String fid = fertilizerSlot.getItemId();
-            // Custom fertilizer IDs
             if (fid.equals("Tool_Compost")) {
                 activeFertilizerType = hasLiquid ? FertilizerType.TOOL_COMPOST : FertilizerType.NONE;
             } else if (fid.equals("Tool_Super_Compost")) {
@@ -393,14 +508,12 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             } else if (hasLiquid) {
                 activeFertilizerType = FertilizerType.STANDARD_WATER;
             } else {
-                // Standard fertilizer present but no liquid — cannot process.
                 activeFertilizerType = FertilizerType.NONE;
             }
         } else {
             activeFertilizerType = FertilizerType.NONE;
         }
 
-        // Fertilizer water halves the effective tick interval for faster growth.
         effectiveTickInterval = (activeFertilizerType.tickInterval > 0 && hasFertilizerWater)
                 ? Math.max(1, activeFertilizerType.tickInterval / 2)
                 : activeFertilizerType.tickInterval;
@@ -414,28 +527,28 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } else {
             isProcessing = false;
         }
-        // Only push a UI update when something the player can see actually changed.
         if (slotsChanged) uiDirty = true;
     }
 
     private int applyGrowthTick(World w, boolean treeOnly) {
-        int baseX = this.getBlockX();
-        int baseY = this.getBlockY();
-        int baseZ = this.getBlockZ();
-        int rotation = getRotationIndex();
+        int baseX = cachedPosition.x;
+        int baseY = cachedPosition.y;
+        int baseZ = cachedPosition.z;
+        int rotation = cachedRotation;
 
-        // Hoist once: these are stable across the entire growth scan.
         Store<ChunkStore> chunkStore = w.getChunkStore().getStore();
 
-        // Per-call caches: avoid re-fetching the same chunk/ref/bcc/sectionRef for multiple Y-levels at the same (x,z).
         HashMap<Long, WorldChunk> chunkCache = new HashMap<>();
         HashMap<Long, Ref<ChunkStore>> chunkRefCache = new HashMap<>();
         HashMap<Long, BlockComponentChunk> bccCache = new HashMap<>();
-        // Section refs grouped by packed (sectionX, sectionY, sectionZ) — multiple blocks share a section.
         HashMap<Long, Ref<ChunkStore>> sectionRefCache = new HashMap<>();
 
+        HytaleLogger.getLogger().atInfo().log(
+            "[Fertilizer %d,%d,%d] applyGrowthTick scanning: base=(%d,%d,%d) rot=%d treeOnly=%b",
+            cachedPosition.x, cachedPosition.y, cachedPosition.z,
+            baseX, baseY, baseZ, rotation, treeOnly);
+
         int cropsAdvanced = 0;
-        // Always attempt all 25 slots every pass; failures in one slot never stop others.
         for (int lateral = -2; lateral <= 2; lateral++) {
             for (int forward = 1; forward <= 5; forward++) {
                 int x = baseX;
@@ -459,14 +572,15 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                     }
                 }
 
-                // Be tolerant to slight Y drift between machines/chunk updates.
                 cropsAdvanced += tryApplyGrowthAt(w, x, baseY,     z, treeOnly, chunkStore, chunkCache, chunkRefCache, bccCache, sectionRefCache);
                 cropsAdvanced += tryApplyGrowthAt(w, x, baseY + 1, z, treeOnly, chunkStore, chunkCache, chunkRefCache, bccCache, sectionRefCache);
                 cropsAdvanced += tryApplyGrowthAt(w, x, baseY - 1, z, treeOnly, chunkStore, chunkCache, chunkRefCache, bccCache, sectionRefCache);
             }
         }
-        
-        
+
+        HytaleLogger.getLogger().atInfo().log(
+            "[Fertilizer %d,%d,%d] applyGrowthTick done: %d crops advanced",
+            cachedPosition.x, cachedPosition.y, cachedPosition.z, cropsAdvanced);
         return cropsAdvanced;
     }
 
@@ -492,9 +606,16 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             if (blockType == null) return 0;
 
             String bid = blockType.getId();
+            if (bid.equals("Empty") || bid.equals("Air")) return 0;
             boolean isSapling = bid.startsWith("Plant_Sapling_") || bid.contains("_Sapling");
+            boolean isCrop = bid.contains("_Crop") || bid.contains("Plant_Crop");
 
-            // Tree-only fertilizers skip non-saplings.
+            if (!isSapling && !isCrop) return 0;
+
+            HytaleLogger.getLogger().atInfo().log(
+                "[Fertilizer] tryApplyGrowthAt (%d,%d,%d) block=%s sapling=%b crop=%b treeOnly=%b",
+                x, y, z, bid, isSapling, isCrop, treeOnly);
+
             if (treeOnly && !isSapling) return 0;
 
             // Saplings without farming data: re-arm natural ticking.
@@ -570,8 +691,6 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             FarmingStageData[] stages = (FarmingStageData[]) farmingConfig.getStages().get(currentStageSet);
             if (stages == null || stages.length == 0) return 0;
 
-            // Saplings should mature fully in one fertilizer pass, but we do it stage-by-stage
-            // so each transition can fail safely without invalidating the block state.
             int targetStage = isSapling
                     ? (stages.length - 1)
                     : Math.min(currentStage + 1, stages.length - 1);
@@ -585,7 +704,6 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             int sx = ChunkUtil.chunkCoordinate(x);
             int sy = ChunkUtil.chunkCoordinate(y);
             int sz = ChunkUtil.chunkCoordinate(z);
-            // Pack (sx, sy, sz) into a long — sy fits in 16 bits (±32768 sections), sx/sz in 24 bits each.
             long sectionKey = ((long)(sx & 0xFFFFFF) << 40) | ((long)(sy & 0xFFFF) << 24) | (sz & 0xFFFFFF);
             Ref<ChunkStore> sectionRef;
             if (!sectionRefCache.containsKey(sectionKey)) {
@@ -615,7 +733,6 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                     lastStableGeneration = farmingBlock.getGeneration();
                     advancedAny = true;
                 } catch (Exception applyEx) {
-                    // Roll back to the last successfully applied stage.
                     farmingBlock.setGrowthProgress(lastStableProgress);
                     farmingBlock.setGeneration(lastStableGeneration);
                     throw applyEx;
@@ -629,7 +746,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] growth tick failed at (%d,%d,%d): %s",
-                getBlockX(), getBlockY(), getBlockZ(), x, y, z, e.getMessage());
+                cachedPosition.x, cachedPosition.y, cachedPosition.z, x, y, z, e.getMessage());
             return 0;
         }
     }
@@ -640,32 +757,28 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } catch (Exception e) {
             HytaleLogger.getLogger().atFine().log(
                 "[Fertilizer %d,%d,%d] setTicking failed at (%d,%d,%d): %s",
-                getBlockX(), getBlockY(), getBlockZ(), x, y, z, e.getMessage());
+                cachedPosition.x, cachedPosition.y, cachedPosition.z, x, y, z, e.getMessage());
         }
     }
 
     private void consumeResources() {
-        if (this.getItemContainer() == null) return;
-        // Note: slot quantity changes are reflected in the UI via the next checkInputItems
-        // isProcessing transition — no need to mark dirty here on every cycle.
+        if (this.itemContainer == null) return;
 
-        // Consume one fertilizer from slot 0 (any item containing 'fertil').
-        ItemStack fertilizerSlot = this.getItemContainer().getItemStack((short) 0);
+        ItemStack fertilizerSlot = this.itemContainer.getItemStack((short) 0);
         if (fertilizerSlot != null && isFertilizer(fertilizerSlot.getItemId())) {
-            this.getItemContainer().removeItemStackFromSlot((short) 0, 1);
+            this.itemContainer.removeItemStackFromSlot((short) 0, 1);
         }
 
-        // NoCube fertilizers are standalone – they do not consume liquid from slot 1.
         if (activeFertilizerType.standalone) return;
 
-        ItemStack waterSlot = this.getItemContainer().getItemStack((short) 1);
+        ItemStack waterSlot = this.itemContainer.getItemStack((short) 1);
         if (waterSlot != null && (
             waterSlot.getItemId().equals("Container_Bucket_State_Filled_Water") ||
             waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Water") ||
             waterSlot.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
             waterSlot.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
         )) {
-            this.getItemContainer().removeItemStackFromSlot((short) 1, 1);
+            this.itemContainer.removeItemStackFromSlot((short) 1, 1);
         }
     }
 
@@ -678,13 +791,10 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         hasFertilizerWater = false;
         hasConsumedResources = false;
         activeFertilizerType = FertilizerType.NONE;
-        // uiDirty intentionally NOT set here — checkInputItems will detect the state
-        // change on the next 20-tick check and mark dirty at that point if needed.
     }
 
     private void setAnimState(World w, boolean on) {
         if (on) {
-            // Trigger On and (re)start the hold timer.
             animHoldTimer = ANIM_HOLD_TICKS;
             spawnFertilizerParticles(w);
             if (!isAnimating) {
@@ -692,7 +802,6 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                 isAnimating = true;
             }
         } else {
-            // Only switch to Off once the hold timer has expired.
             if (animHoldTimer > 0) return;
             if (isAnimating) {
                 applyBlockState(w, "Off");
@@ -703,9 +812,9 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
 
     private void spawnFertilizerParticles(World w) {
         try {
-            double cx = getBlockX() + 0.5;
-            double cy = getBlockY() + 0.5;
-            double cz = getBlockZ() + 0.5;
+            double cx = cachedPosition.x + 0.5;
+            double cy = cachedPosition.y + 0.5;
+            double cz = cachedPosition.z + 0.5;
             ComponentAccessor<EntityStore> accessor = w.getEntityStore().getStore();
             ParticleUtil.spawnParticleEffect("Water_Can_Splash", new Vector3d(cx + 1, cy, cz), accessor);
             ParticleUtil.spawnParticleEffect("Water_Can_Splash", new Vector3d(cx - 1, cy, cz), accessor);
@@ -714,13 +823,13 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] spawnFertilizerParticles failed: %s",
-                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+                cachedPosition.x, cachedPosition.y, cachedPosition.z, e.getMessage());
         }
     }
 
     private void applyBlockState(World world, String stateName) {
         try {
-            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            int bx = cachedPosition.x, by = cachedPosition.y, bz = cachedPosition.z;
             WorldChunk chunk = world.getChunkIfInMemory(ChunkUtil.indexChunkFromBlock(bx, bz));
             if (chunk == null) return;
             BlockType current = chunk.getBlockType(new Vector3i(bx, by, bz));
@@ -738,62 +847,16 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] applyBlockState '%s' failed: %s",
-                getBlockX(), getBlockY(), getBlockZ(), stateName, e.getMessage());
+                cachedPosition.x, cachedPosition.y, cachedPosition.z, stateName, e.getMessage());
         }
     }
-
-
-    @Override
-    public boolean initialize(BlockType blockType) {
-        if (super.initialize(blockType) && blockType.getState() instanceof Data data) {
-            this.data = data;
-            cachedBlockPos = new Vector3i(getBlockX(), getBlockY(), getBlockZ());
-            // Initialize item container for the processing bench
-            ic = new SimpleItemContainer((short)2); // 2 slots: fertilizer and water/fertilizer water
-            
-            // Set slot filters to only allow specific items in specific slots.
-            // Slot 0: Any item whose ID contains 'fertil' (case-insensitive) —
-            //         covers our own items, NoCube's Orchard, NoCube's Cultivation, etc.
-            //         Fertilizer water is excluded here — it belongs in slot 1.
-            ic.setSlotFilter(FilterActionType.ADD, (short) 0, (actionType, container, slot, itemStack) ->
-                itemStack != null && isFertilizer(itemStack.getItemId()) && !isFertilizerWater(itemStack.getItemId()));
-            
-            // Slot 1: Only allow water or fertilizer water
-            ic.setSlotFilter(FilterActionType.ADD, (short)1, (actionType, container, slot, itemStack) -> {
-                return itemStack != null && (
-                    itemStack.getItemId().equals("Container_Bucket_State_Filled_Water") ||
-                    itemStack.getItemId().equals("*Container_Bucket_State_Filled_Water") ||
-                    itemStack.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
-                    itemStack.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
-                );
-            });
-            
-            return true;
-        }
-        return false;
-    }
-
-
-
-    public static ComponentType<EntityStore, BlockEntity> getComponentType() {
-        ComponentRegistryProxy<EntityStore> entityStoreRegistry = EntityModule.get().getEntityStoreRegistry();
-        return EntityModule.get().getBlockEntityComponentType();
-    }
-
-    @Override
-    public ItemContainer getItemContainer() {
-        return ic;
-    }
-
-
 
     private void fixSlotAssignments(World w) {
-        if (this.getItemContainer() == null) return;
-        
-        ItemStack slot0 = this.getItemContainer().getItemStack((short)0);
-        ItemStack slot1 = this.getItemContainer().getItemStack((short)1);
-        
-        // Check if items are in wrong slots.
+        if (this.itemContainer == null) return;
+
+        ItemStack slot0 = this.itemContainer.getItemStack((short)0);
+        ItemStack slot1 = this.itemContainer.getItemStack((short)1);
+
         boolean slot0Wrong = slot0 != null && (!isFertilizer(slot0.getItemId()) || isFertilizerWater(slot0.getItemId()));
         boolean slot1Wrong = slot1 != null && !(
             slot1.getItemId().equals("Container_Bucket_State_Filled_Water") ||
@@ -801,36 +864,27 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             slot1.getItemId().equals("Container_Bucket_State_Filled_Fertilizer_Water") ||
             slot1.getItemId().equals("*Container_Bucket_State_Filled_Fertilizer_Water")
         );
-        
+
         if (slot0Wrong || slot1Wrong) {
-            
-            // Drop items that are in wrong slots
             if (slot0Wrong && slot0 != null) {
                 dropItem(w, slot0);
-                this.getItemContainer().removeItemStackFromSlot((short)0, slot0.getQuantity());
+                this.itemContainer.removeItemStackFromSlot((short)0, slot0.getQuantity());
             }
             if (slot1Wrong && slot1 != null) {
                 dropItem(w, slot1);
-                this.getItemContainer().removeItemStackFromSlot((short)1, slot1.getQuantity());
+                this.itemContainer.removeItemStackFromSlot((short)1, slot1.getQuantity());
             }
         }
     }
 
     private void dropItem(World w, ItemStack itemStack) {
         if (w == null || itemStack == null) return;
-        
-        // Just log the item being dropped, don't actually drop it
-        //HytaleLogger.getLogger().atWarning().log("FertilizerState: Dropped item: " + itemStack.getItemId());
     }
 
-    /**
-     * Ensures this block entity has the ArcIO mechanism and UUID components
-     * so it can be wired into ArcIO networks via manathreads.
-     */
-    private void ensureArcioComponents(World world) {
+    private void ensureArcioComponents(World world, CommandBuffer<ChunkStore> commandBuffer) {
         if (arcioInitialized) return;
         try {
-            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            int bx = cachedPosition.x, by = cachedPosition.y, bz = cachedPosition.z;
             Store<ChunkStore> cs = world.getChunkStore().getStore();
             Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
                     ChunkUtil.indexChunkFromBlock(bx, bz));
@@ -846,7 +900,11 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             if (uuid == null) {
                 uuid = BlockUUIDComponent.randomUUID();
                 uuid.setPosition(new Vector3i(bx, by, bz));
-                cs.putComponent(blockRef, BlockUUIDComponent.getComponentType(), uuid);
+                if (commandBuffer != null) {
+                    commandBuffer.putComponent(blockRef, BlockUUIDComponent.getComponentType(), uuid);
+                } else {
+                    cs.putComponent(blockRef, BlockUUIDComponent.getComponentType(), uuid);
+                }
                 ArcioPlugin.get().putUUID(uuid.getUuid(), blockRef);
                 HytaleLogger.getLogger().atInfo().log(
                     "[Fertilizer %d,%d,%d] Registered ArcIO UUID: %s",
@@ -857,29 +915,26 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                     blockRef, ArcioMechanismComponent.getComponentType());
             if (mech == null) {
                 mech = new ArcioMechanismComponent("Fertilizer", 0, 1);
-                cs.putComponent(blockRef, ArcioMechanismComponent.getComponentType(), mech);
+                if (commandBuffer != null) {
+                    commandBuffer.putComponent(blockRef, ArcioMechanismComponent.getComponentType(), mech);
+                } else {
+                    cs.putComponent(blockRef, ArcioMechanismComponent.getComponentType(), mech);
+                }
                 HytaleLogger.getLogger().atInfo().log(
                     "[Fertilizer %d,%d,%d] Added ArcIO mechanism component (type=Fertilizer)",
                     bx, by, bz);
             }
 
-            // Cache the resolved mechanism so isArcioActive can skip the lookup chain every tick.
             cachedArcioMech = mech;
             arcioInitialized = true;
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] Failed to ensure ArcIO components: %s",
-                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+                cachedPosition.x, cachedPosition.y, cachedPosition.z, e.getMessage());
         }
     }
 
-    /**
-     * Checks if this block's ArcIO mechanism is active.
-     * First checks the block's own mechanism component (for manathread connections),
-     * then falls back to checking adjacent mechanisms for backwards compatibility.
-     */
     private boolean isArcioActive(World world) {
-        // Fast path: mechanism component was cached during init — no chunk-store lookups needed.
         if (cachedArcioMech != null) {
             try {
                 int signal = cachedArcioMech.getStrongestInputSignal(world);
@@ -887,13 +942,12 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
             } catch (Exception e) {
                 HytaleLogger.getLogger().atWarning().log(
                     "[Fertilizer %d,%d,%d] ArcIO cached signal check failed: %s",
-                    getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
-                cachedArcioMech = null; // invalidate and fall through
+                    cachedPosition.x, cachedPosition.y, cachedPosition.z, e.getMessage());
+                cachedArcioMech = null;
             }
         }
-        // Slow path: resolve the mechanism reference chain (runs until arcio is initialised).
         try {
-            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            int bx = cachedPosition.x, by = cachedPosition.y, bz = cachedPosition.z;
             Store<ChunkStore> cs = world.getChunkStore().getStore();
             Ref<ChunkStore> chunkRef = world.getChunkStore().getChunkReference(
                     ChunkUtil.indexChunkFromBlock(bx, bz));
@@ -907,7 +961,7 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
                         ArcioMechanismComponent mech = (ArcioMechanismComponent) cs.getComponent(
                                 blockRef, ArcioMechanismComponent.getComponentType());
                         if (mech != null) {
-                            cachedArcioMech = mech; // cache it for subsequent ticks
+                            cachedArcioMech = mech;
                             int signal = mech.getStrongestInputSignal(world);
                             int required = mech.getRequiredSignal();
                             if (signal > 0 && signal >= required) return true;
@@ -918,19 +972,15 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] ArcIO own-signal check failed: %s",
-                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+                cachedPosition.x, cachedPosition.y, cachedPosition.z, e.getMessage());
         }
         return hasAdjacentActiveArcioMechanism(world);
     }
 
-    /**
-     * Returns true if any of the 6 directly adjacent blocks has an ArcIO
-     * MechanismComponent whose signal meets or exceeds its required threshold (i.e. is "On").
-     */
     private boolean hasAdjacentActiveArcioMechanism(World world) {
         try {
             Store<ChunkStore> cs = world.getChunkStore().getStore();
-            int bx = getBlockX(), by = getBlockY(), bz = getBlockZ();
+            int bx = cachedPosition.x, by = cachedPosition.y, bz = cachedPosition.z;
             int[][] offsets = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
             for (int[] off : offsets) {
                 int nx = bx + off[0], ny = by + off[1], nz = bz + off[2];
@@ -953,14 +1003,14 @@ public class FertilizerState extends ItemContainerState implements TickableBlock
         } catch (Exception e) {
             HytaleLogger.getLogger().atWarning().log(
                 "[Fertilizer %d,%d,%d] ArcIO adjacent check failed: %s",
-                getBlockX(), getBlockY(), getBlockZ(), e.getMessage());
+                cachedPosition.x, cachedPosition.y, cachedPosition.z, e.getMessage());
         }
         return false;
     }
 
     public static class Data extends StateData {
         @Nonnull
-        public static final BuilderCodec<Data> CODEC = BuilderCodec.builder(Data.class, Data::new, StateData.DEFAULT_CODEC)
+        public static final BuilderCodec<Data> CODEC = BuilderCodec.builder(Data.class, Data::new)
                 .append(new KeyedCodec<>("Size", Codec.INTEGER), (o, v) -> o.square = v, o ->o.square).add().build();
 
         private int square;

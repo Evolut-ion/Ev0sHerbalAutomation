@@ -36,6 +36,25 @@
     "RequiresAlphaBlending": true,
     "Interactions": {
       "Use": "Open_Container"
+    },
+    "BlockEntity": {
+      "Components": {
+        "BlockPlacer": {
+          "Size": 5
+        },
+        "ItemContainerBlock": {
+          "Capacity": 1,
+          "ItemContainer": {
+            "Capacity": 1
+          }
+        },
+        "ArcioMechanism": {
+          "MechanismType": "BlockPlacer",
+          "RequiredSignal": 0,
+          "SignalGenerated": 1
+        },
+        "ArcioBlockUUID": {}
+      }
     }
   },
   "Tags": {
